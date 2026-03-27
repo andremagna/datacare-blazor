@@ -1,0 +1,219 @@
+@page "/"
+@inject EtlService EtlSvc
+@inject EtlStateService State
+@inject IJSRuntime JS
+@implements IDisposable
+
+<PageTitle>ETL Runner — DataCare</PageTitle>
+
+<div class="etl-page">
+    <div class="sdiv">Azure AD / Graph</div>
+    <div class="g3">
+        <div>
+            <div class="fl">Tenant ID</div>
+            <input class="fi @(_submitted && string.IsNullOrWhiteSpace(_cfg.TenantId) ? "fi-error" : "")"
+                   @bind="_cfg.TenantId"
+                   placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+            @if (_submitted && string.IsNullOrWhiteSpace(_cfg.TenantId))
+            {
+                <div class="field-err">valore obbligatorio</div>
+            }
+        </div>
+        <div>
+            <div class="fl">Client ID</div>
+            <input class="fi @(_submitted && string.IsNullOrWhiteSpace(_cfg.ClientId) ? "fi-error" : "")"
+                   @bind="_cfg.ClientId"
+                   placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+            @if (_submitted && string.IsNullOrWhiteSpace(_cfg.ClientId))
+            {
+                <div class="field-err">valore obbligatorio</div>
+            }
+        </div>
+        <div>
+            <div class="fl">Client Secret</div>
+            <input class="fi @(_submitted && string.IsNullOrWhiteSpace(_cfg.ClientSecret) ? "fi-error" : "")"
+                   type="password"
+                   @bind="_cfg.ClientSecret"
+                   placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+            @if (_submitted && string.IsNullOrWhiteSpace(_cfg.ClientSecret))
+            {
+                <div class="field-err">valore obbligatorio</div>
+            }
+        </div>
+    </div>
+
+    <div class="sdiv">SQL Server</div>
+    <div class="g2">
+        <div>
+            <div class="fl">Server</div>
+            <input class="fi" @bind="_cfg.SqlServer" placeholder="localhost\SQLEXPRESS" />
+        </div>
+        <div>
+            <div class="fl">Database</div>
+            <input class="fi" @bind="_cfg.SqlDatabase" placeholder="DataCareTest" />
+        </div>
+    </div>
+
+    <div class="sdiv">Execution</div>
+    <div class="g2">
+        <div>
+            <div class="fl">Report period</div>
+            <select class="fs" @bind="_cfg.Period">
+                <option value="D7">D7 — Last 7 days</option>
+                <option value="D30">D30 — Last 30 days</option>
+                <option value="D90">D90 — Last 90 days</option>
+                <option value="D180">D180 — Last 180 days</option>
+            </select>
+        </div>
+        <div>
+            <div class="fl">Target department</div>
+            <select class="fs" @bind="_cfg.Department">
+                <option>Information Technology</option>
+                <option>Human Resources</option>
+                <option>Finance</option>
+                <option>Marketing</option>
+                <option>All</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="sdiv">Execution log</div>
+    <div class="term" id="terminal">
+        @if (!State.TerminalLines.Any())
+        {
+            <div class="t-d">DataCare ready &mdash; fill in the parameters and press Run ETL.</div>
+        }
+        @foreach (var line in State.TerminalLines)
+        {
+            <div class="@line.CssClass">
+                <span class="t-ts">@line.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")</span>
+                &nbsp;&mdash;&nbsp;@line.Message
+            </div>
+        }
+    </div>
+
+    <div class="prog-row">
+        <span>@State.ProgressLabel</span>
+        <span>@(State.Progress)%</span>
+    </div>
+    <div class="prog-track">
+        <div class="prog-fill" style="width:@(State.Progress)%"></div>
+    </div>
+
+    <div class="footer-row">
+        <span class="@State.StatusCss">@State.StatusText</span>
+        @if (State.IsRunning)
+        {
+            <button class="btn-cancel" @onclick="CancelRun">Cancel</button>
+        }
+        <button class="btn-run" @onclick="StartRun" disabled="@(State.IsRunning)">
+            Run ETL
+        </button>
+    </div>
+
+    @if (State.HistoryRows.Any())
+    {
+        <div class="etl-hist">
+            <div class="hist-title">Execution history</div>
+            <table class="htable">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Report</th>
+                        <th>Status</th>
+                        <th>Retrieved</th>
+                        <th>Inserted</th>
+                        <th>Duration</th>
+                        <th>Error</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in State.HistoryRows)
+                    {
+                        <tr>
+                            <td>@row.ExecutionDate.ToString("dd MMM yyyy HH:mm:ss")</td>
+                            <td>@row.ReportName</td>
+                            <td>
+                                <span class="hbadge @(row.IsSuccess ? "ok" : "fail")">
+                                    @row.Status
+                                </span>
+                            </td>
+                            <td>@row.RowsRetrieved.ToString("N0")</td>
+                            <td>@row.RowsInserted.ToString("N0")</td>
+                            <td>@(row.DurationSeconds)s</td>
+                            <td class="@(row.IsSuccess ? "err-ok" : "err-fail")">
+                                @(row.ErrorMessage ?? "—")
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+</div>
+
+@code {
+    private RunConfig _cfg = new();
+    private bool _submitted = false;
+    private CancellationTokenSource? _cts;
+
+    private bool IsValid =>
+        !string.IsNullOrWhiteSpace(_cfg.TenantId) &&
+        !string.IsNullOrWhiteSpace(_cfg.ClientId) &&
+        !string.IsNullOrWhiteSpace(_cfg.ClientSecret);
+
+    protected override void OnInitialized() =>
+        State.OnChanged += OnStateChanged;
+
+    private void StartRun()
+    {
+        _submitted = true;
+
+        if (!IsValid)
+        {
+            StateHasChanged();
+            return;
+        }
+
+        if (State.IsRunning) return;
+
+        var snapshot = new RunConfig
+        {
+            TenantId = _cfg.TenantId.Trim(),
+            ClientId = _cfg.ClientId.Trim(),
+            ClientSecret = _cfg.ClientSecret,
+            SqlServer = _cfg.SqlServer.Trim(),
+            SqlDatabase = _cfg.SqlDatabase.Trim(),
+            Period = _cfg.Period,
+            Department = _cfg.Department,
+        };
+
+        State.StartRun();
+        StateHasChanged();
+
+        _cts = new CancellationTokenSource();
+        _ = Task.Run(() => EtlSvc.RunAsync(snapshot, _cts.Token));
+    }
+
+    private void CancelRun() => _cts?.Cancel();
+
+    private void OnStateChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            try
+            {
+                await JS.InvokeVoidAsync("datacareTerminal.scrollToBottom", "terminal");
+            }
+            catch { /* JS not ready yet */ }
+        });
+    }
+
+    public void Dispose()
+    {
+        State.OnChanged -= OnStateChanged;
+        _cts?.Dispose();
+    }
+}
