@@ -1,4 +1,4 @@
-# DataCare – PowerBI Connector (PowerShell ETL)
+# DataCare – PowerBI Connector (ASP.NET Blazor)
 
 
 ## 📄 License
