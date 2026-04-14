@@ -10,18 +10,24 @@ public class EtlStateService
     public string StatusText { get; private set; } = string.Empty;
     public string StatusCss { get; private set; } = string.Empty;
 
+    // Dashboard state
+    public bool HasRun { get; private set; } = false;
+    public bool LastRunSuccess { get; private set; } = false;
+    public string? LastConnectionString { get; private set; }
+
     public List<TerminalLine> TerminalLines { get; } = new();
     public List<ExecutionLogEntry> HistoryRows { get; } = new();
 
     public event Action? OnChanged;
 
-    public void StartRun()
+    public void StartRun(string connectionString)
     {
         IsRunning = true;
         Progress = 0;
         ProgressLabel = "Starting...";
         StatusText = "Running...";
         StatusCss = "st run";
+        LastConnectionString = connectionString;
         TerminalLines.Clear();
         Notify();
     }
@@ -42,6 +48,8 @@ public class EtlStateService
     public void CompleteRun(bool success, IEnumerable<ExecutionLogEntry> history)
     {
         IsRunning = false;
+        HasRun = true;
+        LastRunSuccess = success;
         Progress = success ? 100 : Progress;
         ProgressLabel = success ? "Done" : "Failed";
         StatusText = success ? "Completed successfully" : "Failed — see log";
@@ -54,6 +62,8 @@ public class EtlStateService
     public void SetCancelled()
     {
         IsRunning = false;
+        HasRun = true;
+        LastRunSuccess = false;
         StatusText = "Cancelled";
         StatusCss = "st err";
         ProgressLabel = "Cancelled";
@@ -63,6 +73,8 @@ public class EtlStateService
     public void SetFailed(string error)
     {
         IsRunning = false;
+        HasRun = true;
+        LastRunSuccess = false;
         StatusText = "Failed — see log";
         StatusCss = "st err";
         ProgressLabel = "Failed";

@@ -1,0 +1,497 @@
+@page "/dashboard"
+@using DataCareLite.Models
+@using DataCareLite.Services
+@using Microsoft.Data.SqlClient
+@inject EtlStateService State
+@implements IDisposable
+
+<PageTitle>DataCare Dashboard</PageTitle>
+
+@if (!State.HasRun)
+{
+    <div class="dash-empty">
+        <div class="dash-empty-icon">
+            <svg viewBox="0 0 64 64" fill="none" width="64" height="64">
+                <rect x="4"  y="4"  width="26" height="26" rx="4" fill="#1a3a6b" opacity=".5" />
+                <rect x="34" y="4"  width="26" height="26" rx="4" fill="#1a3a6b" opacity=".3" />
+                <rect x="4"  y="34" width="26" height="26" rx="4" fill="#1a3a6b" opacity=".3" />
+                <rect x="34" y="34" width="26" height="26" rx="4" fill="#1a3a6b" opacity=".15"/>
+            </svg>
+        </div>
+        <h2 class="dash-empty-title">Nessun dato disponibile</h2>
+        <p class="dash-empty-msg">Inserisci i valori obbligatori ed esegui il <strong>Run ETL</strong>
+           dalla pagina <a href="/">Home</a> per visualizzare la dashboard.</p>
+    </div>
+}
+else if (!State.LastRunSuccess)
+{
+    <div class="dash-error-page">
+        <div class="dash-error-icon">⚠</div>
+        <h2 class="dash-error-title">Ops, errore imprevisto</h2>
+        <p class="dash-error-msg">Si è verificato un errore durante l'esecuzione dell'ETL.<br />
+           Torna alla pagina <a href="/">Home</a> e riesegui l'ETL.</p>
+    </div>
+}
+else if (_loading)
+{
+    <div class="dash-empty">
+        <p class="dash-empty-msg">Caricamento dati dashboard...</p>
+    </div>
+}
+else
+{
+    <div class="dashboard-page">
+        <div class="dash-header">
+            <div>
+                <h1 class="dash-title">DataCare Dashboard</h1>
+                <span class="dash-sub">Microsoft 365 Usage Report</span>
+            </div>
+            <!-- Department filter -->
+            <div class="dept-filter">
+                <label class="dept-label">Department</label>
+                <select class="dept-select" @bind="_selectedDept" @bind:after="OnDeptChanged">
+                    <option value="">All departments</option>
+                    @foreach (var d in _departments)
+                    {
+                        <option value="@d">@d</option>
+                    }
+                </select>
+            </div>
+        </div>
+
+        <!-- ═══════════════════════════════ USERS ═══════════════════════════════ -->
+        <div class="section-label">
+            <svg class="section-svg" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M10 10a4 4 0 100-8 4 4 0 000 8zm-7 8a7 7 0 1114 0H3z"/>
+            </svg>
+            Users
+        </div>
+        <div class="cards-row cards-5">
+            <div class="dcard">
+                <div class="dcard-title">Number of users</div>
+                @{ var uVal = _data.Sum(r => r.Users_Total); }
+                <svg viewBox="0 0 140 90" class="dchart">
+                    @DynBars(_data.Select(r => (double)r.Users_Total).ToList(), "#4a90d9")
+                </svg>
+                <div class="kpi-row">
+                    <div class="kpi kpi-a">@uVal.ToString("N0")</div>
+                </div>
+            </div>
+
+            <div class="dcard dcard-wide">
+                <div class="dcard-title">Country Details</div>
+                <table class="ctable">
+                    @foreach (var c in _countries.Take(8))
+                    {
+                        <tr class="ct-h"><td>@c.CountryName</td></tr>
+                        <tr class="ct-v"><td>@c.CountryCount</td></tr>
+                    }
+                </table>
+            </div>
+        </div>
+
+        <!-- ══════════════════════════════ EXCHANGE ══════════════════════════════ -->
+        <div class="section-label">
+            <span class="section-badge" style="background:#0078d4;">E</span>
+            Exchange
+        </div>
+        <div class="cards-row cards-5">
+            @{
+                var primCount   = _data.Sum(r => r.Exchange_Total_Primary_Item_Count);
+                var primSizeGB  = _data.Sum(r => r.Exchange_Total_Primary_Total_Size_GB);
+                var archCount   = _data.Sum(r => r.Exchange_Total_Archive_Item_Count);
+                var archSizeGB  = _data.Sum(r => r.Exchange_Total_Archive_Total_Size_GB);
+            }
+
+            <div class="dcard">
+                <div class="dcard-title">Primary: Email Count</div>
+                <svg viewBox="0 0 140 90" class="dchart">
+                    @DynBars(_data.Select(r => (double)r.Exchange_Total_Primary_Item_Count).ToList(), "#4a90d9")
+                </svg>
+                <div class="kpi-row"><div class="kpi kpi-a">@primCount.ToString("N0")</div></div>
+            </div>
+
+            <div class="dcard">
+                <div class="dcard-title">Primary: Email Storage (GB)</div>
+                <svg viewBox="0 0 140 90" class="dchart">
+                    @DynBars(_data.Select(r => (double)r.Exchange_Total_Primary_Total_Size_GB).ToList(), "#4a90d9")
+                </svg>
+                <div class="kpi-row"><div class="kpi kpi-a">@primSizeGB.ToString("F2")</div></div>
+            </div>
+
+            <div class="dcard">
+                <div class="dcard-title">Archive: Email Count</div>
+                <svg viewBox="0 0 140 90" class="dchart">
+                    @DynBars(_data.Select(r => (double)r.Exchange_Total_Archive_Item_Count).ToList(), "#1a3a6b")
+                </svg>
+                <div class="kpi-row"><div class="kpi kpi-b">@archCount.ToString("N0")</div></div>
+            </div>
+
+            <div class="dcard">
+                <div class="dcard-title">Archive: Email Storage (GB)</div>
+                <svg viewBox="0 0 140 90" class="dchart">
+                    @DynBars(_data.Select(r => (double)r.Exchange_Total_Archive_Total_Size_GB).ToList(), "#1a3a6b")
+                </svg>
+                <div class="kpi-row"><div class="kpi kpi-b">@archSizeGB.ToString("F2")</div></div>
+            </div>
+        </div>
+
+        <!-- Exchange Details -->
+        <div class="cards-row cards-2">
+            @{
+                var primDetails = new List<(string Label, double Val, string Color)>
+                {
+                    ("Primary_Total_Size_Bytes",         (double)_data.Sum(r => r.Exchange_Total_Primary_Total_Size_Bytes),         "#4a90d9"),
+                    ("Primary_SystemMessage_Count",      (double)_data.Sum(r => r.Exchange_Total_Primary_SystemMessage_Count),      "#f6a623"),
+                    ("Primary_SystemMessage_Size_Bytes", (double)_data.Sum(r => r.Exchange_Total_Primary_SystemMessage_Size_Bytes), "#e8584a"),
+                    ("Primary_Recoverable_Count",        (double)_data.Sum(r => r.Exchange_Total_Primary_Recoverable_Count),        "#9c27b0"),
+                    ("Primary_Recoverable_Size_Bytes",   (double)_data.Sum(r => r.Exchange_Total_Primary_Recoverable_Size_Bytes),   "#00b9ae"),
+                };
+                var archDetails = new List<(string Label, double Val, string Color)>
+                {
+                    ("Archive_Total_Size_Bytes",         (double)_data.Sum(r => r.Exchange_Total_Archive_Total_Size_Bytes),         "#4a90d9"),
+                    ("Archive_SystemMessage_Count",      (double)_data.Sum(r => r.Exchange_Total_Archive_SystemMessage_Count),      "#f6a623"),
+                    ("Archive_SystemMessage_Size_Bytes", (double)_data.Sum(r => r.Exchange_Total_Archive_SystemMessage_Size_Bytes), "#e8584a"),
+                    ("Archive_Recoverable_Count",        (double)_data.Sum(r => r.Exchange_Total_Archive_Recoverable_Count),        "#9c27b0"),
+                    ("Archive_Recoverable_Size_Bytes",   (double)_data.Sum(r => r.Exchange_Total_Archive_Recoverable_Size_Bytes),   "#00b9ae"),
+                };
+            }
+            <div class="dcard">
+                <div class="dcard-title">Primary: Details</div>
+                <svg viewBox="0 0 280 110" class="dchart">
+                    @GroupedBars(primDetails)
+                </svg>
+                <div class="trend-row">
+                    @foreach (var item in primDetails)
+                    {
+                        <div class="tb tb-n">
+                            <span style="color:@item.Color">●</span>
+                            @FormatLargeNum(item.Val)
+                            <div class="tb-l">@item.Label</div>
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="dcard">
+                <div class="dcard-title">Archive: Details</div>
+                <svg viewBox="0 0 280 110" class="dchart">
+                    @GroupedBars(archDetails)
+                </svg>
+                <div class="trend-row">
+                    @foreach (var item in archDetails)
+                    {
+                        <div class="tb tb-n">
+                            <span style="color:@item.Color">●</span>
+                            @FormatLargeNum(item.Val)
+                            <div class="tb-l">@item.Label</div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- ═════════════════════════ ONEDRIVE + SHAREPOINT ═════════════════════ -->
+        <div class="cards-row cards-2-equal-sections">
+            <div>
+                <div class="section-label">
+                    <svg class="section-svg" viewBox="0 0 20 14" fill="none">
+                        <path d="M12.5 14H3a3 3 0 01-.5-5.95A5 5 0 0112.08 5 3.5 3.5 0 0117 8.5a3.5 3.5 0 01-4.5 5.5z" fill="#0078d4"/>
+                    </svg>
+                    OneDrive
+                </div>
+                <div class="cards-row cards-2">
+                    @{
+                        var odFiles   = _data.Sum(r => r.OneDrive_Total_File_Count);
+                        var odStorage = _data.Sum(r => (double)r.OneDrive_Total_StorageUsedGB);
+                    }
+                    <div class="dcard">
+                        <div class="dcard-title">File Count</div>
+                        <svg viewBox="0 0 140 90" class="dchart">
+                            @DynBars(_data.Select(r => (double)r.OneDrive_Total_File_Count).ToList(), "#0078d4")
+                        </svg>
+                        <div class="kpi-row"><div class="kpi kpi-a">@odFiles.ToString("N0")</div></div>
+                    </div>
+                    <div class="dcard">
+                        <div class="dcard-title">File Storage (GB)</div>
+                        <svg viewBox="0 0 140 90" class="dchart">
+                            @DynBars(_data.Select(r => (double)r.OneDrive_Total_StorageUsedGB).ToList(), "#0078d4")
+                        </svg>
+                        <div class="kpi-row"><div class="kpi kpi-a">@odStorage.ToString("F2")</div></div>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <div class="section-label">
+                    <span class="section-badge" style="background:#036c70;">S</span>
+                    SharePoint
+                </div>
+                <div class="cards-row cards-2">
+                    @{
+                        var spFiles   = _data.Sum(r => r.SharePoint_Total_File_Count);
+                        var spStorage = _data.Sum(r => (double)r.SharePoint_Total_StorageUsedGB);
+                    }
+                    <div class="dcard">
+                        <div class="dcard-title">File Count</div>
+                        <svg viewBox="0 0 140 90" class="dchart">
+                            @DynBars(_data.Select(r => (double)r.SharePoint_Total_File_Count).ToList(), "#036c70")
+                        </svg>
+                        <div class="kpi-row"><div class="kpi kpi-a">@spFiles.ToString("N0")</div></div>
+                    </div>
+                    <div class="dcard">
+                        <div class="dcard-title">File Storage (GB)</div>
+                        <svg viewBox="0 0 140 90" class="dchart">
+                            @DynBars(_data.Select(r => (double)r.SharePoint_Total_StorageUsedGB).ToList(), "#036c70")
+                        </svg>
+                        <div class="kpi-row"><div class="kpi kpi-a">@spStorage.ToString("F2")</div></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+}
+
+@* ═══════════════════════════ SVG CHART HELPERS ═══════════════════════════ *@
+@* Renders N bars (one per department row) scaled to the chart viewport.    *@
+@code {
+    // ── State ────────────────────────────────────────────────────────────────
+    private bool _loading = true;
+    private List<DashRow> _data = new();
+    private List<CountryRow> _countries = new();
+    private List<string> _departments = new();
+    private string _selectedDept = "";
+
+    // ── Lifecycle ────────────────────────────────────────────────────────────
+    protected override async Task OnInitializedAsync()
+    {
+        State.OnChanged += OnStateChanged;
+        if (State.HasRun && State.LastRunSuccess)
+            await LoadDataAsync();
+        else
+            _loading = false;
+    }
+
+    private async Task LoadDataAsync()
+    {
+        _loading = true;
+        var cs = State.LastConnectionString;
+        if (string.IsNullOrWhiteSpace(cs)) { _loading = false; return; }
+
+        try
+        {
+            // Load available departments
+            if (_departments.Count == 0)
+                _departments = await QueryListAsync(cs, TableDdl.DepartmentListQuery(),
+                    r => r.GetString(0));
+
+            // Load dashboard rows (filtered by selected dept)
+            _data = await QueryListAsync(cs, TableDdl.DashboardQuery(_selectedDept),
+                r => new DashRow
+                {
+                    Department                                      = r.IsDBNull(1)  ? "" : r.GetString(1),
+                    Exchange_Total_Primary_Item_Count               = r.IsDBNull(2)  ? 0  : r.GetInt64(2),
+                    Exchange_Total_Archive_Item_Count               = r.IsDBNull(3)  ? 0  : r.GetInt64(3),
+                    Exchange_Total_Primary_Total_Size_GB            = r.IsDBNull(4)  ? 0  : (double)r.GetDecimal(4),
+                    Exchange_Total_Archive_Total_Size_GB            = r.IsDBNull(5)  ? 0  : (double)r.GetDecimal(5),
+                    Exchange_Total_Primary_SystemMessage_Count      = r.IsDBNull(6)  ? 0  : r.GetInt64(6),
+                    Exchange_Total_Primary_SystemMessage_Size_Bytes = r.IsDBNull(7)  ? 0  : r.GetInt64(7),
+                    Exchange_Total_Primary_Recoverable_Count        = r.IsDBNull(8)  ? 0  : r.GetInt64(8),
+                    Exchange_Total_Primary_Recoverable_Size_Bytes   = r.IsDBNull(9)  ? 0  : r.GetInt64(9),
+                    Exchange_Total_Archive_SystemMessage_Count      = r.IsDBNull(10) ? 0  : r.GetInt64(10),
+                    Exchange_Total_Archive_SystemMessage_Size_Bytes = r.IsDBNull(11) ? 0  : r.GetInt64(11),
+                    Exchange_Total_Archive_Recoverable_Count        = r.IsDBNull(12) ? 0  : r.GetInt64(12),
+                    Exchange_Total_Archive_Recoverable_Size_Bytes   = r.IsDBNull(13) ? 0  : r.GetInt64(13),
+                    Exchange_Total_Archive_Total_Size_Bytes         = r.IsDBNull(9)  ? 0  : r.GetInt64(9),
+                    OneDrive_Total_File_Count                       = r.IsDBNull(14) ? 0  : r.GetInt64(14),
+                    OneDrive_Total_StorageUsedGB                    = r.IsDBNull(15) ? 0  : (double)r.GetDecimal(15),
+                    SharePoint_Total_File_Count                     = r.IsDBNull(16) ? 0  : r.GetInt64(16),
+                    SharePoint_Total_StorageUsedGB                  = r.IsDBNull(17) ? 0  : (double)r.GetDecimal(17),
+                    Users_Total                                     = r.IsDBNull(18) ? 0  : r.GetInt32(18),
+                });
+
+            // Countries
+            _countries = await QueryListAsync(cs, TableDdl.CountryQuery(_selectedDept),
+                r => new CountryRow
+                {
+                    CountryName  = r.IsDBNull(0) ? "Unknown" : r.GetString(0),
+                    CountryCount = r.IsDBNull(1) ? 0 : r.GetInt32(1),
+                });
+        }
+        catch { }
+        finally { _loading = false; }
+    }
+
+    private async Task OnDeptChanged()
+    {
+        await LoadDataAsync();
+        StateHasChanged();
+    }
+
+    private void OnStateChanged() => _ = InvokeAsync(async () =>
+    {
+        if (State.HasRun && State.LastRunSuccess)
+            await LoadDataAsync();
+        StateHasChanged();
+    });
+
+    public void Dispose() => State.OnChanged -= OnStateChanged;
+
+    // ── SQL helpers ───────────────────────────────────────────────────────────
+    private static async Task<List<T>> QueryListAsync<T>(string cs, string sql,
+        Func<SqlDataReader, T> map)
+    {
+        var list = new List<T>();
+        await using var conn = new SqlConnection(cs);
+        await conn.OpenAsync();
+        await using var cmd = new SqlCommand(sql, conn);
+        await using var rdr = await cmd.ExecuteReaderAsync();
+        while (await rdr.ReadAsync()) list.Add(map(rdr));
+        return list;
+    }
+
+    // ── Chart helpers ─────────────────────────────────────────────────────────
+    // Renders a mini bar chart (140×90 viewport) for N values.
+    // When there is a single value we show one centred bar; for multiple values
+    // we space them evenly and colour alternately (primary / secondary).
+    private RenderFragment DynBars(List<double> vals, string color) => builder =>
+    {
+        if (vals == null || vals.Count == 0) return;
+
+        double max = vals.Max();
+        const double chartH = 72, chartTop = 6, axisX = 22, axisRight = 134;
+        double chartW = axisRight - axisX;
+
+        int n   = vals.Count;
+        double barW   = Math.Min(28, (chartW - 4 * (n + 1)) / n);
+        double gap    = (chartW - barW * n) / (n + 1);
+
+        // Y-axis
+        builder.OpenElement(0, "line");
+        builder.AddAttribute(1, "x1", axisX); builder.AddAttribute(2, "y1", chartTop);
+        builder.AddAttribute(3, "x2", axisX); builder.AddAttribute(4, "y2", chartTop + chartH);
+        builder.AddAttribute(5, "stroke", "#2a2a44"); builder.AddAttribute(6, "stroke-width", "0.7");
+        builder.CloseElement();
+        // X-axis
+        builder.OpenElement(7, "line");
+        builder.AddAttribute(8, "x1", axisX); builder.AddAttribute(9, "y1", chartTop + chartH);
+        builder.AddAttribute(10, "x2", axisRight); builder.AddAttribute(11, "y2", chartTop + chartH);
+        builder.AddAttribute(12, "stroke", "#2a2a44"); builder.AddAttribute(13, "stroke-width", "0.7");
+        builder.CloseElement();
+
+        // Y labels
+        string[] yLabels = { "0", FormatLargeNum(max / 2), FormatLargeNum(max) };
+        double[] yPos    = { chartTop + chartH, chartTop + chartH / 2, chartTop };
+        for (int i = 0; i < 3; i++)
+        {
+            builder.OpenElement(14 + i * 10, "text");
+            builder.AddAttribute(0, "x", axisX - 2); builder.AddAttribute(0, "y", yPos[i] + 2);
+            builder.AddAttribute(0, "fill", "#556"); builder.AddAttribute(0, "font-size", "6");
+            builder.AddAttribute(0, "text-anchor", "end"); builder.AddContent(0, yLabels[i]);
+            builder.CloseElement();
+        }
+
+        for (int i = 0; i < n; i++)
+        {
+            double v = vals[i];
+            double barH = max > 0 ? (v / max) * chartH : 2;
+            double x    = axisX + gap + i * (barW + gap);
+            double y    = chartTop + chartH - barH;
+            string c    = i % 2 == 0 ? color : AdjustOpacity(color, 0.6);
+
+            builder.OpenElement(100 + i, "rect");
+            builder.AddAttribute(0, "x", x.ToString("F1")); builder.AddAttribute(0, "y", y.ToString("F1"));
+            builder.AddAttribute(0, "width", barW.ToString("F1")); builder.AddAttribute(0, "height", Math.Max(2, barH).ToString("F1"));
+            builder.AddAttribute(0, "rx", "2"); builder.AddAttribute(0, "fill", c);
+            builder.CloseElement();
+
+            // Value label on top
+            builder.OpenElement(200 + i, "text");
+            builder.AddAttribute(0, "x", (x + barW / 2).ToString("F1")); builder.AddAttribute(0, "y", (y - 2).ToString("F1"));
+            builder.AddAttribute(0, "fill", "#aac"); builder.AddAttribute(0, "font-size", "6");
+            builder.AddAttribute(0, "text-anchor", "middle"); builder.AddContent(0, FormatLargeNum(v));
+            builder.CloseElement();
+        }
+    };
+
+    // Grouped horizontal bars for the Exchange Details card (280×110 viewport)
+    private RenderFragment GroupedBars(List<(string Label, double Val, string Color)> items) => builder =>
+    {
+        if (items == null || items.Count == 0) return;
+        double max = items.Max(x => x.Val);
+        const double left = 30, top = 10, width = 240, totalH = 90;
+        double rowH = totalH / items.Count;
+
+        for (int i = 0; i < items.Count; i++)
+        {
+            double barH = Math.Max(4, rowH - 4);
+            double barW = max > 0 ? (items[i].Val / max) * width : 4;
+            double y = top + i * rowH;
+
+            builder.OpenElement(i, "rect");
+            builder.AddAttribute(0, "x", left.ToString("F1")); builder.AddAttribute(0, "y", y.ToString("F1"));
+            builder.AddAttribute(0, "width", Math.Max(4, barW).ToString("F1")); builder.AddAttribute(0, "height", barH.ToString("F1"));
+            builder.AddAttribute(0, "rx", "2"); builder.AddAttribute(0, "fill", items[i].Color); builder.AddAttribute(0, "opacity", "0.85");
+            builder.CloseElement();
+        }
+    };
+
+    private static string FormatLargeNum(double v)
+    {
+        if (v >= 1_000_000_000) return $"{v / 1_000_000_000:F1}B";
+        if (v >= 1_000_000)     return $"{v / 1_000_000:F1}M";
+        if (v >= 1_000)         return $"{v / 1_000:F1}K";
+        return v.ToString("F0");
+    }
+
+    private static string AdjustOpacity(string hex, double factor)
+    {
+        // Just return the same colour — SVG opacity attribute handles it
+        return hex;
+    }
+
+    // ── Data models ───────────────────────────────────────────────────────────
+    private class DashRow
+    {
+        public string Department { get; set; } = "";
+        public long   Exchange_Total_Primary_Item_Count               { get; set; }
+        public long   Exchange_Total_Archive_Item_Count               { get; set; }
+        public double Exchange_Total_Primary_Total_Size_GB            { get; set; }
+        public double Exchange_Total_Archive_Total_Size_GB            { get; set; }
+        public long   Exchange_Total_Primary_SystemMessage_Count      { get; set; }
+        public long   Exchange_Total_Primary_SystemMessage_Size_Bytes { get; set; }
+        public long   Exchange_Total_Primary_Recoverable_Count        { get; set; }
+        public long   Exchange_Total_Primary_Recoverable_Size_Bytes   { get; set; }
+        public long   Exchange_Total_Primary_Total_Size_Bytes         { get; set; }
+        public long   Exchange_Total_Archive_Total_Size_Bytes         { get; set; }
+        public long   Exchange_Total_Archive_SystemMessage_Count      { get; set; }
+        public long   Exchange_Total_Archive_SystemMessage_Size_Bytes { get; set; }
+        public long   Exchange_Total_Archive_Recoverable_Count        { get; set; }
+        public long   Exchange_Total_Archive_Recoverable_Size_Bytes   { get; set; }
+        public long   OneDrive_Total_File_Count    { get; set; }
+        public double OneDrive_Total_StorageUsedGB { get; set; }
+        public long   SharePoint_Total_File_Count    { get; set; }
+        public double SharePoint_Total_StorageUsedGB { get; set; }
+        public int    Users_Total { get; set; }
+    }
+
+    private class CountryRow
+    {
+        public string CountryName  { get; set; } = "";
+        public int    CountryCount { get; set; }
+    }
+}
+
+<style>
+/* ── Department filter ─── */
+.dept-filter { display:flex; align-items:center; gap:.6rem; margin-left:auto; }
+.dept-label  { font-size:.78rem; color:#7090c0; font-weight:600; }
+.dept-select { background:#151528; border:1px solid #2a2a44; color:#c8d0e7;
+               border-radius:6px; padding:.4rem .8rem; font-size:.82rem;
+               outline:none; cursor:pointer; min-width:180px; }
+.dept-select:focus { border-color:#4a90d9; }
+
+/* ── Header ─── */
+.dash-header { display:flex; align-items:flex-start; justify-content:space-between;
+               flex-wrap:wrap; gap:1rem; margin-bottom:1.5rem; }
+</style>

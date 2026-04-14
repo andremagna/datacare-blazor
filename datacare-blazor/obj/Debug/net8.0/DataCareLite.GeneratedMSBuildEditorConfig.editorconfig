@@ -30,8 +30,16 @@ build_metadata.AdditionalFiles.CssScope =
 build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xMYXlvdXRcTWFpbkxheW91dC5yYXpvcg==
 build_metadata.AdditionalFiles.CssScope = 
 
+[C:/Tools/Workspace/Auth/datacare-blazor/Components/Pages/Dashboard.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xQYWdlc1xEYXNoYm9hcmQucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
 [C:/Tools/Workspace/Auth/datacare-blazor/Components/Pages/EtlRunner.razor]
 build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xQYWdlc1xFdGxSdW5uZXIucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Tools/Workspace/Auth/datacare-blazor/Components/Pages/Logs.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xQYWdlc1xMb2dzLnJhem9y
 build_metadata.AdditionalFiles.CssScope = 
 
 [C:/Tools/Workspace/Auth/datacare-blazor/Components/Routes.razor]

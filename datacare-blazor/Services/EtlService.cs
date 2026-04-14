@@ -34,48 +34,48 @@ public class EtlService
             Log("Graph token acquired", TerminalLevel.Success);
             _state.SetProgress(16, "Token acquired");
 
-            foreach (var t in new[] { "Exchange", "OneDrive", "SharePoint",
-                                       "Users", "PowerBIDataModel", "CountryOrRegion" })
+            foreach (var t in new[] { "MicrosoftExchange", "MicrosoftOneDrive", "MicrosoftSharePoint",
+                                       "MicrosoftUsers", "PowerBIDataModelHistory", "PowerBICountryOrRegion" })
                 await DropRecreateIfNeededAsync(cfg, t, ct);
             _state.SetProgress(22, "Tables ready");
 
             // STEP 1a — Exchange
             Log("STEP 1 — Exchange mailbox usage...", TerminalLevel.Step);
             var exRows = await FetchExchangeAsync(cfg, ct);
-            await BulkInsertMappedAsync(cfg, "Exchange", exRows, ct);
+            await BulkInsertMappedAsync(cfg, "MicrosoftExchange", exRows, ct);
             Log($"Exchange: {exRows.Count} rows inserted", TerminalLevel.Success);
             _state.SetProgress(40, "Exchange done");
-            await WriteExecLogAsync(cfg, executionId, "Exchange", "SUCCESS",
+            await WriteExecLogAsync(cfg, executionId, "MicrosoftExchange", "SUCCESS",
                 exRows.Count, exRows.Count, Elapsed(started), null, ct);
             ct.ThrowIfCancellationRequested();
 
             // STEP 1b — OneDrive
             Log("STEP 1 — OneDrive usage...", TerminalLevel.Step);
             var odRows = await FetchOneDriveAsync(cfg, ct);
-            await BulkInsertMappedAsync(cfg, "OneDrive", odRows, ct);
+            await BulkInsertMappedAsync(cfg, "MicrosoftOneDrive", odRows, ct);
             Log($"OneDrive: {odRows.Count} rows inserted", TerminalLevel.Success);
             _state.SetProgress(54, "OneDrive done");
-            await WriteExecLogAsync(cfg, executionId, "OneDrive", "SUCCESS",
+            await WriteExecLogAsync(cfg, executionId, "MicrosoftOneDrive", "SUCCESS",
                 odRows.Count, odRows.Count, Elapsed(started), null, ct);
             ct.ThrowIfCancellationRequested();
 
             // STEP 1c — SharePoint
             Log("STEP 1 — SharePoint site usage...", TerminalLevel.Step);
             var spRows = await FetchSharePointAsync(cfg, ct);
-            await BulkInsertMappedAsync(cfg, "SharePoint", spRows, ct);
+            await BulkInsertMappedAsync(cfg, "MicrosoftSharePoint", spRows, ct);
             Log($"SharePoint: {spRows.Count} rows inserted", TerminalLevel.Success);
             _state.SetProgress(68, "SharePoint done");
-            await WriteExecLogAsync(cfg, executionId, "SharePoint", "SUCCESS",
+            await WriteExecLogAsync(cfg, executionId, "MicrosoftSharePoint", "SUCCESS",
                 spRows.Count, spRows.Count, Elapsed(started), null, ct);
             ct.ThrowIfCancellationRequested();
 
             // STEP 2 — Users
             Log("STEP 2 — Azure AD users...", TerminalLevel.Step);
             var usRows = await FetchUsersAsync(ct);
-            await BulkInsertMappedAsync(cfg, "Users", usRows, ct);
+            await BulkInsertMappedAsync(cfg, "MicrosoftUsers", usRows, ct);
             Log($"Users: {usRows.Count} rows inserted", TerminalLevel.Success);
             _state.SetProgress(80, "Users done");
-            await WriteExecLogAsync(cfg, executionId, "Users", "SUCCESS",
+            await WriteExecLogAsync(cfg, executionId, "MicrosoftUsers", "SUCCESS",
                 usRows.Count, usRows.Count, Elapsed(started), null, ct);
             ct.ThrowIfCancellationRequested();
 
@@ -493,48 +493,26 @@ public class EtlService
     // ── PowerBI model ─────────────────────────────────────────────────────────
     private async Task BuildPowerBIModelAsync(RunConfig cfg, CancellationToken ct)
     {
-        string date = DateTime.Now.ToString("yyyy_MM_dd");
-        string backup = $"dbo.PowerBIDataModelBackup_{date}";
-
-        string backupDdl = $@"
-            IF OBJECT_ID('{backup}','U') IS NULL
-            CREATE TABLE {backup} (
-                Exchange_Total_Primary_Item_Count               INT,
-                Exchange_Total_Archive_Item_Count               INT,
-                Exchange_Total_Primary_Total_Size_GB            DECIMAL(18,2),
-                Exchange_Total_Archive_Total_Size_GB            DECIMAL(18,2),
-                Exchange_Total_Primary_Total_Size_Bytes         BIGINT,
-                Exchange_Total_Primary_SystemMessage_Count      INT,
-                Exchange_Total_Primary_SystemMessage_Size_Bytes BIGINT,
-                Exchange_Total_Primary_Recoverable_Count        INT,
-                Exchange_Total_Primary_Recoverable_Size_Bytes   BIGINT,
-                Exchange_Total_Archive_Total_Size_Bytes         BIGINT,
-                Exchange_Total_Archive_SystemMessage_Count      INT,
-                Exchange_Total_Archive_SystemMessage_Size_Bytes BIGINT,
-                Exchange_Total_Archive_Recoverable_Count        INT,
-                Exchange_Total_Archive_Recoverable_Size_Bytes   BIGINT,
-                OneDrive_Total_File_Count                       INT,
-                OneDrive_Total_StorageUsedGB                    FLOAT,
-                SharePoint_Total_File_Count                     INT,
-                SharePoint_Total_StorageUsedGB                  FLOAT,
-                Users_Total                                     INT);";
-
-        await ExecAsync(cfg.TargetConnectionString, backupDdl, ct);
-        await ExecAsync(cfg.TargetConnectionString,
-            $"INSERT INTO {backup} {TableDdl.PowerBIAggregateQuery};", ct);
-        await ExecAsync(cfg.TargetConnectionString,
-            $"INSERT INTO dbo.PowerBIDataModel {TableDdl.PowerBIAggregateQuery};", ct);
-        Log($"  Backup {backup} populated", TerminalLevel.Success);
+        // PowerBIDataModelHistory is an append-only history table — no backup needed,
+        // just insert the per-department aggregation rows for this execution.
+        var execId = Guid.NewGuid();
+        string sql = $"DECLARE @ExecutionId UNIQUEIDENTIFIER = '{execId}';\n" +
+                     TableDdl.PowerBIAggregateQuery;
+        await ExecAsync(cfg.TargetConnectionString, sql, ct);
+        Log($"  dbo.PowerBIDataModelHistory populated (ExecutionId={execId})", TerminalLevel.Success);
     }
 
     private async Task BuildCountryOrRegionAsync(RunConfig cfg, CancellationToken ct) =>
         await ExecAsync(cfg.TargetConnectionString, @"
-            INSERT INTO dbo.CountryOrRegion (CountryName, CountryCount)
-            SELECT CountryOrRegion, COUNT(*)
-            FROM dbo.Users
+            INSERT INTO dbo.PowerBICountryOrRegion (Department, CountryName, CountryCount)
+            SELECT
+                ISNULL(Department, 'Unknown') AS Department,
+                CountryOrRegion               AS CountryName,
+                COUNT(*)                      AS CountryCount
+            FROM dbo.MicrosoftUsers
             WHERE CountryOrRegion IS NOT NULL AND CountryOrRegion <> ''
-            GROUP BY CountryOrRegion
-            ORDER BY COUNT(*) DESC;", ct);
+            GROUP BY ISNULL(Department, 'Unknown'), CountryOrRegion
+            ORDER BY ISNULL(Department, 'Unknown'), COUNT(*) DESC;", ct);
 
     // ── SQL init ──────────────────────────────────────────────────────────────
     private async Task InitDatabaseAsync(RunConfig cfg, CancellationToken ct)
@@ -592,9 +570,15 @@ public class EtlService
             await using var conn = new SqlConnection(cfg.TargetConnectionString);
             await conn.OpenAsync(ct);
             await using var cmd = new SqlCommand(@"
-                SELECT TOP 50 ExecutionDate,ReportName,Status,
-                    RowsRetrieved,RowsInserted,DurationSeconds,ErrorMessage
-                FROM dbo.ExecutionLog ORDER BY ExecutionDate DESC", conn);
+                SELECT ExecutionDate, ReportName, Status,
+                       RowsRetrieved, RowsInserted, DurationSeconds, ErrorMessage
+                FROM dbo.ExecutionLog
+                WHERE ExecutionId = (
+                    SELECT TOP 1 ExecutionId
+                    FROM dbo.ExecutionLog
+                    ORDER BY ExecutionDate DESC
+                )
+                ORDER BY ExecutionDate DESC", conn);
             await using var rdr = await cmd.ExecuteReaderAsync(ct);
             while (await rdr.ReadAsync(ct))
                 list.Add(new ExecutionLogEntry
@@ -612,22 +596,112 @@ public class EtlService
         return list;
     }
 
-    // ── Graph auth ────────────────────────────────────────────────────────────
+    // ── Graph auth — certificate-based client assertion (RS256 JWT) ──────────
+    // Mirrors Get-GraphAccessToken from the PowerShell script exactly:
+    //   1. Locate the certificate in CurrentUser\My by thumbprint
+    //   2. Build header  { alg:"RS256", typ:"JWT", x5t:<base64url cert hash> }
+    //   3. Build payload { aud, iss, sub, jti, nbf, exp }
+    //   4. Sign header.payload with RSA-SHA256 (PKCS#1 v1.5)
+    //   5. POST client_credentials + client_assertion to AAD token endpoint
     private async Task AcquireTokenAsync(RunConfig cfg, CancellationToken ct)
     {
+        // ── 1. Find certificate ───────────────────────────────────────────────
+        var thumbprint = cfg.CertificateThumbprint.Trim();
+        var store = new System.Security.Cryptography.X509Certificates.X509Store(
+            System.Security.Cryptography.X509Certificates.StoreName.My,
+            System.Security.Cryptography.X509Certificates.StoreLocation.CurrentUser);
+        store.Open(System.Security.Cryptography.X509Certificates.OpenFlags.ReadOnly);
+
+        var certs = store.Certificates.Find(
+            System.Security.Cryptography.X509Certificates.X509FindType.FindByThumbprint,
+            thumbprint, validOnly: false);
+        store.Close();
+
+        if (certs.Count == 0)
+            throw new InvalidOperationException(
+                $"Certificate not found in CurrentUser\\My with thumbprint: {thumbprint}");
+
+        var cert = certs[0];
+        if (!cert.HasPrivateKey)
+            throw new InvalidOperationException(
+                "Certificate does not have a private key.");
+
+        // ── 2. Build JWT header ───────────────────────────────────────────────
+        // x5t = base64url of the certificate SHA-1 hash (same as PS ConvertTo-Base64Url)
+        string x5t = Base64UrlEncode(cert.GetCertHash());
+
+        var headerObj = new { alg = "RS256", typ = "JWT", x5t };
+        string headerJson = System.Text.Json.JsonSerializer.Serialize(headerObj);
+        string headerB64 = Base64UrlEncode(System.Text.Encoding.UTF8.GetBytes(headerJson));
+
+        // ── 3. Build JWT payload ──────────────────────────────────────────────
+        var now = DateTimeOffset.UtcNow;
+        var exp = now.AddMinutes(10);
+        var payloadObj = new
+        {
+            aud = $"https://login.microsoftonline.com/{cfg.TenantId}/oauth2/v2.0/token",
+            iss = cfg.ClientId,
+            sub = cfg.ClientId,
+            jti = Guid.NewGuid().ToString(),
+            nbf = now.ToUnixTimeSeconds(),
+            exp = exp.ToUnixTimeSeconds(),
+        };
+        string payloadJson = System.Text.Json.JsonSerializer.Serialize(payloadObj);
+        string payloadB64 = Base64UrlEncode(System.Text.Encoding.UTF8.GetBytes(payloadJson));
+
+        // ── 4. Sign header.payload with RSA-SHA256 ────────────────────────────
+        // Try modern GetRSAPrivateKey() first (same as PS try block),
+        // fall back to legacy RSACryptoServiceProvider (same as PS fallback).
+        string unsignedToken = $"{headerB64}.{payloadB64}";
+        byte[] bytesToSign = System.Text.Encoding.UTF8.GetBytes(unsignedToken);
+        byte[] signatureBytes;
+
+        var rsa = System.Security.Cryptography.X509Certificates
+                        .RSACertificateExtensions.GetRSAPrivateKey(cert);
+        if (rsa != null)
+        {
+            signatureBytes = rsa.SignData(
+                bytesToSign,
+                System.Security.Cryptography.HashAlgorithmName.SHA256,
+                System.Security.Cryptography.RSASignaturePadding.Pkcs1);
+        }
+        else
+        {
+            // Legacy CSP fallback — mirrors PS fallback branch
+            var csp = cert.PrivateKey as System.Security.Cryptography.RSACryptoServiceProvider
+                      ?? throw new InvalidOperationException(
+                             "No usable RSA private key found on the certificate.");
+            signatureBytes = csp.SignData(bytesToSign,
+                new System.Security.Cryptography.SHA256Managed());
+        }
+
+        string clientAssertion = $"{unsignedToken}.{Base64UrlEncode(signatureBytes)}";
+
+        // ── 5. POST to AAD token endpoint ─────────────────────────────────────
         var body = new FormUrlEncodedContent(new[]
         {
-            new KeyValuePair<string,string>("client_id",     cfg.ClientId),
-            new KeyValuePair<string,string>("client_secret", cfg.ClientSecret),
-            new KeyValuePair<string,string>("scope",         "https://graph.microsoft.com/.default"),
-            new KeyValuePair<string,string>("grant_type",    "client_credentials"),
+            new KeyValuePair<string,string>("client_id",             cfg.ClientId),
+            new KeyValuePair<string,string>("scope",                 "https://graph.microsoft.com/.default"),
+            new KeyValuePair<string,string>("grant_type",            "client_credentials"),
+            new KeyValuePair<string,string>("client_assertion_type",
+                "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"),
+            new KeyValuePair<string,string>("client_assertion",      clientAssertion),
         });
+
         var resp = await _http.PostAsync(
             $"https://login.microsoftonline.com/{cfg.TenantId}/oauth2/v2.0/token", body, ct);
         resp.EnsureSuccessStatusCode();
+
         var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
         _token = doc.RootElement.GetProperty("access_token").GetString()!;
     }
+
+    /// <summary>
+    /// Mirrors ConvertTo-Base64Url from the PowerShell script:
+    /// standard base64, strip trailing '=', replace '+' with '-' and '/' with '_'.
+    /// </summary>
+    private static string Base64UrlEncode(byte[] bytes) =>
+        Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
     // ── CSV fetch ─────────────────────────────────────────────────────────────
     private async Task<List<Dictionary<string, string?>>> FetchCsvAsync(string url, CancellationToken ct)

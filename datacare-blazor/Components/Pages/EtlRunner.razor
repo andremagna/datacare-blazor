@@ -30,12 +30,11 @@
             }
         </div>
         <div>
-            <div class="fl">Client Secret</div>
-            <input class="fi @(_submitted && string.IsNullOrWhiteSpace(_cfg.ClientSecret) ? "fi-error" : "")"
-                   type="password"
-                   @bind="_cfg.ClientSecret"
+            <div class="fl">Certificate Thumbprint</div>
+            <input class="fi @(_submitted && string.IsNullOrWhiteSpace(_cfg.CertificateThumbprint) ? "fi-error" : "")"
+                   @bind="_cfg.CertificateThumbprint"
                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
-            @if (_submitted && string.IsNullOrWhiteSpace(_cfg.ClientSecret))
+            @if (_submitted && string.IsNullOrWhiteSpace(_cfg.CertificateThumbprint))
             {
                 <div class="field-err">valore obbligatorio</div>
             }
@@ -161,7 +160,7 @@
     private bool IsValid =>
         !string.IsNullOrWhiteSpace(_cfg.TenantId) &&
         !string.IsNullOrWhiteSpace(_cfg.ClientId) &&
-        !string.IsNullOrWhiteSpace(_cfg.ClientSecret);
+        !string.IsNullOrWhiteSpace(_cfg.CertificateThumbprint);
 
     protected override void OnInitialized() =>
         State.OnChanged += OnStateChanged;
@@ -182,14 +181,14 @@
         {
             TenantId = _cfg.TenantId.Trim(),
             ClientId = _cfg.ClientId.Trim(),
-            ClientSecret = _cfg.ClientSecret,
+            CertificateThumbprint = _cfg.CertificateThumbprint.Trim(),
             SqlServer = _cfg.SqlServer.Trim(),
             SqlDatabase = _cfg.SqlDatabase.Trim(),
             Period = _cfg.Period,
             Department = _cfg.Department,
         };
 
-        State.StartRun();
+        State.StartRun(snapshot.TargetConnectionString);
         StateHasChanged();
 
         _cts = new CancellationTokenSource();

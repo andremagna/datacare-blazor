@@ -18,9 +18,9 @@ public static class TableDdl
                 MachineName      NVARCHAR(255),
                 AppVersion       NVARCHAR(50));",
 
-        ["Users"] = @"
-            IF OBJECT_ID('dbo.Users','U') IS NULL
-            CREATE TABLE dbo.Users (
+        ["MicrosoftUsers"] = @"
+            IF OBJECT_ID('dbo.MicrosoftUsers','U') IS NULL
+            CREATE TABLE dbo.MicrosoftUsers (
                 Id                NVARCHAR(255),
                 DisplayName       NVARCHAR(255),
                 UserPrincipalName NVARCHAR(255) NOT NULL,
@@ -33,9 +33,9 @@ public static class TableDdl
                 SourceReport      NVARCHAR(100),
                 CountryOrRegion   NVARCHAR(50));",
 
-        ["Exchange"] = @"
-            IF OBJECT_ID('dbo.Exchange','U') IS NULL
-            CREATE TABLE dbo.Exchange (
+        ["MicrosoftExchange"] = @"
+            IF OBJECT_ID('dbo.MicrosoftExchange','U') IS NULL
+            CREATE TABLE dbo.MicrosoftExchange (
                 StorageUsedGB                          FLOAT,
                 ___Report_Refresh_Date                 NVARCHAR(50),
                 User_Principal_Name                    NVARCHAR(255) NOT NULL,
@@ -76,9 +76,9 @@ public static class TableDdl
                 Archive_Recoverable_Size_Bytes         BIGINT,
                 Archive_Recoverable_Mode               NVARCHAR(50));",
 
-        ["OneDrive"] = @"
-            IF OBJECT_ID('dbo.OneDrive','U') IS NULL
-            CREATE TABLE dbo.OneDrive (
+        ["MicrosoftOneDrive"] = @"
+            IF OBJECT_ID('dbo.MicrosoftOneDrive','U') IS NULL
+            CREATE TABLE dbo.MicrosoftOneDrive (
                 StorageUsedGB            FLOAT,
                 ___Report_Refresh_Date   NVARCHAR(50),
                 Site_Id                  NVARCHAR(255),
@@ -98,9 +98,9 @@ public static class TableDdl
                 InsertedAt               DATETIME2,
                 SourceReport             NVARCHAR(100));",
 
-        ["SharePoint"] = @"
-            IF OBJECT_ID('dbo.SharePoint','U') IS NULL
-            CREATE TABLE dbo.SharePoint (
+        ["MicrosoftSharePoint"] = @"
+            IF OBJECT_ID('dbo.MicrosoftSharePoint','U') IS NULL
+            CREATE TABLE dbo.MicrosoftSharePoint (
                 StorageUsedGB            FLOAT,
                 ___Report_Refresh_Date   NVARCHAR(50),
                 Site_Id                  NVARCHAR(255),
@@ -115,45 +115,53 @@ public static class TableDdl
                 Storage_Used__Byte_      BIGINT,
                 Storage_Allocated__Byte_ BIGINT,
                 Root_Web_Template        NVARCHAR(100),
-                Owner_Principal_Name     NVARCHAR(255) NOT NULL,
+                Owner_Principal_Name     NVARCHAR(255),
                 Report_Period            NVARCHAR(50),
                 ReportPeriod             NVARCHAR(50),
                 ReportDate               DATETIME2,
                 InsertedAt               DATETIME2,
-                SourceReport             NVARCHAR(100));",
+                SourceReport             NVARCHAR(100),
+                Department               NVARCHAR(50));",
 
-        ["PowerBIDataModel"] = @"
-            IF OBJECT_ID('dbo.PowerBIDataModel','U') IS NULL
-            CREATE TABLE dbo.PowerBIDataModel (
-                Exchange_Total_Primary_Item_Count               INT,
-                Exchange_Total_Archive_Item_Count               INT,
+        ["PowerBIDataModelHistory"] = @"
+            IF OBJECT_ID('dbo.PowerBIDataModelHistory','U') IS NULL
+            CREATE TABLE dbo.PowerBIDataModelHistory (
+                ExecutionId                                     UNIQUEIDENTIFIER,
+                [Date]                                          DATETIME2,
+                Department                                      NVARCHAR(255),
+                Exchange_Total_Primary_Item_Count               BIGINT,
+                Exchange_Total_Archive_Item_Count               BIGINT,
                 Exchange_Total_Primary_Total_Size_GB            DECIMAL(18,2),
                 Exchange_Total_Archive_Total_Size_GB            DECIMAL(18,2),
                 Exchange_Total_Primary_Total_Size_Bytes         BIGINT,
-                Exchange_Total_Primary_SystemMessage_Count      INT,
+                Exchange_Total_Primary_SystemMessage_Count      BIGINT,
                 Exchange_Total_Primary_SystemMessage_Size_Bytes BIGINT,
-                Exchange_Total_Primary_Recoverable_Count        INT,
+                Exchange_Total_Primary_Recoverable_Count        BIGINT,
                 Exchange_Total_Primary_Recoverable_Size_Bytes   BIGINT,
                 Exchange_Total_Archive_Total_Size_Bytes         BIGINT,
-                Exchange_Total_Archive_SystemMessage_Count      INT,
+                Exchange_Total_Archive_SystemMessage_Count      BIGINT,
                 Exchange_Total_Archive_SystemMessage_Size_Bytes BIGINT,
-                Exchange_Total_Archive_Recoverable_Count        INT,
+                Exchange_Total_Archive_Recoverable_Count        BIGINT,
                 Exchange_Total_Archive_Recoverable_Size_Bytes   BIGINT,
-                OneDrive_Total_File_Count                       INT,
-                OneDrive_Total_StorageUsedGB                    FLOAT,
-                SharePoint_Total_File_Count                     INT,
-                SharePoint_Total_StorageUsedGB                  FLOAT,
+                OneDrive_Total_File_Count                       BIGINT,
+                OneDrive_Total_StorageUsedGB                    DECIMAL(18,2),
+                SharePoint_Total_File_Count                     BIGINT,
+                SharePoint_Total_StorageUsedGB                  DECIMAL(18,2),
                 Users_Total                                     INT);",
 
-        ["CountryOrRegion"] = @"
-            IF OBJECT_ID('dbo.CountryOrRegion','U') IS NULL
-            CREATE TABLE dbo.CountryOrRegion (
+        ["PowerBICountryOrRegion"] = @"
+            IF OBJECT_ID('dbo.PowerBICountryOrRegion','U') IS NULL
+            CREATE TABLE dbo.PowerBICountryOrRegion (
+                Department   NVARCHAR(255),
                 CountryName  NVARCHAR(MAX),
                 CountryCount INT);"
     };
 
     public const string PowerBIAggregateQuery = @"
         SELECT
+            @ExecutionId,
+            GETDATE(),
+            e.Department,
             e.Exchange_Total_Primary_Item_Count,
             e.Exchange_Total_Archive_Item_Count,
             e.Exchange_Total_Primary_Total_Size_GB,
@@ -175,37 +183,87 @@ public static class TableDdl
             u.Users_Total
         FROM (
             SELECT
-                SUM(ISNULL([Primary_Item_Count],0))                     AS Exchange_Total_Primary_Item_Count,
-                SUM(ISNULL([Archive_Item_Count],0))                     AS Exchange_Total_Archive_Item_Count,
+                ISNULL(Department, 'Unknown') AS Department,
+                SUM(ISNULL([Primary_Item_Count],0)) AS Exchange_Total_Primary_Item_Count,
+                SUM(ISNULL([Archive_Item_Count],0)) AS Exchange_Total_Archive_Item_Count,
                 CAST(ROUND(SUM(ISNULL([Primary_Total_Size_Bytes],0))/1073741824.0,2) AS DECIMAL(18,2)) AS Exchange_Total_Primary_Total_Size_GB,
-                CAST(ROUND(SUM(ISNULL([Archive_Total_Size_Bytes],0))/1073741824.0,2)  AS DECIMAL(18,2)) AS Exchange_Total_Archive_Total_Size_GB,
-                SUM(ISNULL([Primary_Total_Size_Bytes],0))               AS Exchange_Total_Primary_Total_Size_Bytes,
-                SUM(ISNULL([Primary_SystemMessage_Count],0))            AS Exchange_Total_Primary_SystemMessage_Count,
-                SUM(ISNULL([Primary_SystemMessage_Size_Bytes],0))       AS Exchange_Total_Primary_SystemMessage_Size_Bytes,
-                SUM(ISNULL([Primary_Recoverable_Count],0))              AS Exchange_Total_Primary_Recoverable_Count,
-                SUM(ISNULL([Primary_Recoverable_Size_Bytes],0))         AS Exchange_Total_Primary_Recoverable_Size_Bytes,
-                SUM(ISNULL([Archive_Total_Size_Bytes],0))               AS Exchange_Total_Archive_Total_Size_Bytes,
-                SUM(ISNULL([Archive_SystemMessage_Count],0))            AS Exchange_Total_Archive_SystemMessage_Count,
-                SUM(ISNULL([Archive_SystemMessage_Size_Bytes],0))       AS Exchange_Total_Archive_SystemMessage_Size_Bytes,
-                SUM(ISNULL([Archive_Recoverable_Count],0))              AS Exchange_Total_Archive_Recoverable_Count,
-                SUM(ISNULL([Archive_Recoverable_Size_Bytes],0))         AS Exchange_Total_Archive_Recoverable_Size_Bytes
-            FROM [dbo].[Exchange]
+                CAST(ROUND(SUM(ISNULL([Archive_Total_Size_Bytes],0))/1073741824.0,2) AS DECIMAL(18,2)) AS Exchange_Total_Archive_Total_Size_GB,
+                SUM(ISNULL([Primary_Total_Size_Bytes],0)) AS Exchange_Total_Primary_Total_Size_Bytes,
+                SUM(ISNULL([Primary_SystemMessage_Count],0)) AS Exchange_Total_Primary_SystemMessage_Count,
+                SUM(ISNULL([Primary_SystemMessage_Size_Bytes],0)) AS Exchange_Total_Primary_SystemMessage_Size_Bytes,
+                SUM(ISNULL([Primary_Recoverable_Count],0)) AS Exchange_Total_Primary_Recoverable_Count,
+                SUM(ISNULL([Primary_Recoverable_Size_Bytes],0)) AS Exchange_Total_Primary_Recoverable_Size_Bytes,
+                SUM(ISNULL([Archive_Total_Size_Bytes],0)) AS Exchange_Total_Archive_Total_Size_Bytes,
+                SUM(ISNULL([Archive_SystemMessage_Count],0)) AS Exchange_Total_Archive_SystemMessage_Count,
+                SUM(ISNULL([Archive_SystemMessage_Size_Bytes],0)) AS Exchange_Total_Archive_SystemMessage_Size_Bytes,
+                SUM(ISNULL([Archive_Recoverable_Count],0)) AS Exchange_Total_Archive_Recoverable_Count,
+                SUM(ISNULL([Archive_Recoverable_Size_Bytes],0)) AS Exchange_Total_Archive_Recoverable_Size_Bytes
+            FROM [dbo].[MicrosoftExchange]
+            GROUP BY ISNULL(Department, 'Unknown')
         ) e
-        CROSS JOIN (
+        LEFT JOIN (
             SELECT
-                SUM(ISNULL([File_Count],0))    AS OneDrive_Total_File_Count,
-                SUM(ISNULL([StorageUsedGB],0)) AS OneDrive_Total_StorageUsedGB
-            FROM [dbo].[OneDrive]
-        ) o
-        CROSS JOIN (
+                ISNULL(Department, 'Unknown') AS Department,
+                SUM(ISNULL([File_Count],0)) AS OneDrive_Total_File_Count,
+                CAST(SUM(ISNULL([StorageUsedGB],0)) AS DECIMAL(18,2)) AS OneDrive_Total_StorageUsedGB
+            FROM [dbo].[MicrosoftOneDrive]
+            GROUP BY ISNULL(Department, 'Unknown')
+        ) o ON e.Department = o.Department
+        LEFT JOIN (
             SELECT
-                SUM(ISNULL([File_Count],0))    AS SharePoint_Total_File_Count,
-                SUM(ISNULL([StorageUsedGB],0)) AS SharePoint_Total_StorageUsedGB
-            FROM [dbo].[SharePoint]
-        ) s
-        CROSS JOIN (
-            SELECT COUNT(DISTINCT [UserPrincipalName]) AS Users_Total
-            FROM [dbo].[Users]
+                ISNULL(Department, 'Unknown') AS Department,
+                SUM(ISNULL([File_Count],0)) AS SharePoint_Total_File_Count,
+                CAST(SUM(ISNULL([StorageUsedGB],0)) AS DECIMAL(18,2)) AS SharePoint_Total_StorageUsedGB
+            FROM [dbo].[MicrosoftSharePoint]
+            GROUP BY ISNULL(Department, 'Unknown')
+        ) s ON e.Department = s.Department
+        LEFT JOIN (
+            SELECT
+                ISNULL(Department, 'Unknown') AS Department,
+                COUNT(DISTINCT [UserPrincipalName]) AS Users_Total
+            FROM [dbo].[MicrosoftUsers]
             WHERE [UserPrincipalName] IS NOT NULL
-        ) u";
+            GROUP BY ISNULL(Department, 'Unknown')
+        ) u ON e.Department = u.Department;";
+
+    public static string DashboardQuery(string? department) => $@"
+        SELECT
+            h.[Date],
+            h.Department,
+            h.Exchange_Total_Primary_Item_Count,
+            h.Exchange_Total_Archive_Item_Count,
+            h.Exchange_Total_Primary_Total_Size_GB,
+            h.Exchange_Total_Archive_Total_Size_GB,
+            h.Exchange_Total_Primary_SystemMessage_Count,
+            h.Exchange_Total_Primary_SystemMessage_Size_Bytes,
+            h.Exchange_Total_Primary_Recoverable_Count,
+            h.Exchange_Total_Primary_Recoverable_Size_Bytes,
+            h.Exchange_Total_Archive_SystemMessage_Count,
+            h.Exchange_Total_Archive_SystemMessage_Size_Bytes,
+            h.Exchange_Total_Archive_Recoverable_Count,
+            h.Exchange_Total_Archive_Recoverable_Size_Bytes,
+            h.OneDrive_Total_File_Count,
+            h.OneDrive_Total_StorageUsedGB,
+            h.SharePoint_Total_File_Count,
+            h.SharePoint_Total_StorageUsedGB,
+            h.Users_Total
+        FROM dbo.PowerBIDataModelHistory h
+        WHERE h.ExecutionId = (
+            SELECT TOP 1 ExecutionId FROM dbo.PowerBIDataModelHistory ORDER BY [Date] DESC
+        )
+        {(string.IsNullOrWhiteSpace(department) ? "" : $"AND h.Department = '{department.Replace("'", "''")}'")};";
+
+    public static string CountryQuery(string? department) => $@"
+        SELECT CountryName, CountryCount
+        FROM dbo.PowerBICountryOrRegion
+        WHERE CountryCount > 0
+        {(string.IsNullOrWhiteSpace(department) ? "" : $"AND Department = '{department.Replace("'", "''")}'")};";
+
+    public static string DepartmentListQuery() => @"
+        SELECT DISTINCT ISNULL(Department,'Unknown') AS Department
+        FROM dbo.PowerBIDataModelHistory
+        WHERE ExecutionId = (
+            SELECT TOP 1 ExecutionId FROM dbo.PowerBIDataModelHistory ORDER BY [Date] DESC
+        )
+        ORDER BY Department;";
 }
