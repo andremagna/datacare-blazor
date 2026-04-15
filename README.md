@@ -1,4 +1,4 @@
-# DataCare – Connector (ASP.NET Blazor)
+# DataCare – Dashboard (ASP.NET Blazor)
 
 
 ## 📄 License
