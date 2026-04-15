@@ -1,4 +1,4 @@
-# DataCare – PowerBI Connector (ASP.NET Blazor)
+# DataCare – Connector (ASP.NET Blazor)
 
 
 ## 📄 License
