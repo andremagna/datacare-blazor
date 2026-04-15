@@ -158,6 +158,7 @@ public static class TableDdl
     };
 
     public const string PowerBIAggregateQuery = @"
+        INSERT INTO dbo.PowerBIDataModelHistory
         SELECT
             @ExecutionId,
             GETDATE(),
@@ -226,32 +227,53 @@ public static class TableDdl
             GROUP BY ISNULL(Department, 'Unknown')
         ) u ON e.Department = u.Department;";
 
+    // Returns one row per calendar month (most recent execution per month),
+    // summed across all departments (or filtered to a specific one).
+    // Columns: [0] MonthLabel, [1] YearNum, [2] MonthNum, [3..19] metrics
     public static string DashboardQuery(string? department) => $@"
-        SELECT
-            h.[Date],
-            h.Department,
-            h.Exchange_Total_Primary_Item_Count,
-            h.Exchange_Total_Archive_Item_Count,
-            h.Exchange_Total_Primary_Total_Size_GB,
-            h.Exchange_Total_Archive_Total_Size_GB,
-            h.Exchange_Total_Primary_SystemMessage_Count,
-            h.Exchange_Total_Primary_SystemMessage_Size_Bytes,
-            h.Exchange_Total_Primary_Recoverable_Count,
-            h.Exchange_Total_Primary_Recoverable_Size_Bytes,
-            h.Exchange_Total_Archive_SystemMessage_Count,
-            h.Exchange_Total_Archive_SystemMessage_Size_Bytes,
-            h.Exchange_Total_Archive_Recoverable_Count,
-            h.Exchange_Total_Archive_Recoverable_Size_Bytes,
-            h.OneDrive_Total_File_Count,
-            h.OneDrive_Total_StorageUsedGB,
-            h.SharePoint_Total_File_Count,
-            h.SharePoint_Total_StorageUsedGB,
-            h.Users_Total
-        FROM dbo.PowerBIDataModelHistory h
-        WHERE h.ExecutionId = (
-            SELECT TOP 1 ExecutionId FROM dbo.PowerBIDataModelHistory ORDER BY [Date] DESC
+        WITH LastExecPerMonth AS (
+            SELECT
+                YEAR([Date])  AS YearNum,
+                MONTH([Date]) AS MonthNum,
+                MAX([Date])   AS LastDate,
+                (
+                    SELECT TOP 1 h2.ExecutionId
+                    FROM dbo.PowerBIDataModelHistory h2
+                    WHERE YEAR(h2.[Date]) = YEAR(h1.[Date])
+                      AND MONTH(h2.[Date]) = MONTH(h1.[Date])
+                    ORDER BY h2.[Date] DESC
+                ) AS ExecutionId
+            FROM dbo.PowerBIDataModelHistory h1
+            GROUP BY YEAR([Date]), MONTH([Date])
         )
-        {(string.IsNullOrWhiteSpace(department) ? "" : $"AND h.Department = '{department.Replace("'", "''")}'")};";
+        SELECT
+            FORMAT(lem.LastDate, 'MMMM', 'en-US')                          AS MonthLabel,
+            lem.YearNum,
+            lem.MonthNum,
+            SUM(h.Exchange_Total_Primary_Item_Count)                        AS Exchange_Total_Primary_Item_Count,
+            SUM(h.Exchange_Total_Archive_Item_Count)                        AS Exchange_Total_Archive_Item_Count,
+            CAST(SUM(h.Exchange_Total_Primary_Total_Size_GB)  AS DECIMAL(18,2)) AS Exchange_Total_Primary_Total_Size_GB,
+            CAST(SUM(h.Exchange_Total_Archive_Total_Size_GB)  AS DECIMAL(18,2)) AS Exchange_Total_Archive_Total_Size_GB,
+            SUM(h.Exchange_Total_Primary_SystemMessage_Count)               AS Exchange_Total_Primary_SystemMessage_Count,
+            SUM(h.Exchange_Total_Primary_SystemMessage_Size_Bytes)          AS Exchange_Total_Primary_SystemMessage_Size_Bytes,
+            SUM(h.Exchange_Total_Primary_Recoverable_Count)                 AS Exchange_Total_Primary_Recoverable_Count,
+            SUM(h.Exchange_Total_Primary_Recoverable_Size_Bytes)            AS Exchange_Total_Primary_Recoverable_Size_Bytes,
+            SUM(h.Exchange_Total_Archive_SystemMessage_Count)               AS Exchange_Total_Archive_SystemMessage_Count,
+            SUM(h.Exchange_Total_Archive_SystemMessage_Size_Bytes)          AS Exchange_Total_Archive_SystemMessage_Size_Bytes,
+            SUM(h.Exchange_Total_Archive_Recoverable_Count)                 AS Exchange_Total_Archive_Recoverable_Count,
+            SUM(h.Exchange_Total_Archive_Recoverable_Size_Bytes)            AS Exchange_Total_Archive_Recoverable_Size_Bytes,
+            SUM(h.Exchange_Total_Archive_Total_Size_Bytes)                  AS Exchange_Total_Archive_Total_Size_Bytes,
+            SUM(h.OneDrive_Total_File_Count)                                AS OneDrive_Total_File_Count,
+            CAST(SUM(h.OneDrive_Total_StorageUsedGB)          AS DECIMAL(18,2)) AS OneDrive_Total_StorageUsedGB,
+            SUM(h.SharePoint_Total_File_Count)                              AS SharePoint_Total_File_Count,
+            CAST(SUM(h.SharePoint_Total_StorageUsedGB)        AS DECIMAL(18,2)) AS SharePoint_Total_StorageUsedGB,
+            MAX(h.Users_Total)                                              AS Users_Total
+        FROM LastExecPerMonth lem
+        JOIN dbo.PowerBIDataModelHistory h ON h.ExecutionId = lem.ExecutionId
+        WHERE 1=1
+        {(string.IsNullOrWhiteSpace(department) ? "" : $"AND h.Department = '{department.Replace("'", "''")}'")}
+        GROUP BY lem.YearNum, lem.MonthNum, lem.LastDate
+        ORDER BY lem.YearNum, lem.MonthNum;";
 
     public static string CountryQuery(string? department) => $@"
         SELECT CountryName, CountryCount
@@ -259,11 +281,9 @@ public static class TableDdl
         WHERE CountryCount > 0
         {(string.IsNullOrWhiteSpace(department) ? "" : $"AND Department = '{department.Replace("'", "''")}'")};";
 
+    // Departments are taken from the full history, not just the last run
     public static string DepartmentListQuery() => @"
         SELECT DISTINCT ISNULL(Department,'Unknown') AS Department
         FROM dbo.PowerBIDataModelHistory
-        WHERE ExecutionId = (
-            SELECT TOP 1 ExecutionId FROM dbo.PowerBIDataModelHistory ORDER BY [Date] DESC
-        )
         ORDER BY Department;";
 }

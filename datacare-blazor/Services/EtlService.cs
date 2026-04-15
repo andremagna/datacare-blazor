@@ -34,8 +34,10 @@ public class EtlService
             Log("Graph token acquired", TerminalLevel.Success);
             _state.SetProgress(16, "Token acquired");
 
+            // PowerBIDataModelHistory is append-only (full history) — never drop it.
+            // PowerBICountryOrRegion is rebuilt fresh each run via INSERT — drop only the transient tables.
             foreach (var t in new[] { "MicrosoftExchange", "MicrosoftOneDrive", "MicrosoftSharePoint",
-                                       "MicrosoftUsers", "PowerBIDataModelHistory", "PowerBICountryOrRegion" })
+                                       "MicrosoftUsers", "PowerBICountryOrRegion" })
                 await DropRecreateIfNeededAsync(cfg, t, ct);
             _state.SetProgress(22, "Tables ready");
 
