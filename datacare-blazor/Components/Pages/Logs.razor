@@ -4,6 +4,7 @@
 @using Microsoft.Data.SqlClient
 @inject EtlStateService State
 @inject NavigationManager Nav
+@inject IJSRuntime JS
 @implements IDisposable
 
 <PageTitle>DataCare – Logs</PageTitle>
@@ -44,7 +45,7 @@ else
                 <span class="dash-sub">dbo.ExecutionLog — tutte le esecuzioni</span>
             </div>
             <div class="logs-filter-row">
-                <input class="logs-search" type="text" placeholder="Cerca per ReportName, Status…"
+                <input class="logs-search" type="text" placeholder="Cerca per ExecutionId, ReportName, Status…"
                        @bind="_search" @bind:event="oninput" />
             </div>
         </div>
@@ -53,12 +54,13 @@ else
             <table class="logs-table">
                 <thead>
                     <tr>
+                        <th @onclick="@(() => SortBy("ExecutionId"))" class="sortable @(SortClass("ExecutionId"))">Execution ID</th>
                         <th @onclick="@(() => SortBy("ExecutionDate"))" class="sortable @(SortClass("ExecutionDate"))">Data</th>
                         <th @onclick="@(() => SortBy("ReportName"))" class="sortable @(SortClass("ReportName"))">Report</th>
                         <th @onclick="@(() => SortBy("Status"))" class="sortable @(SortClass("Status"))">Status</th>
                         <th @onclick="@(() => SortBy("RowsRetrieved"))" class="sortable @(SortClass("RowsRetrieved"))">Recuperate</th>
                         <th @onclick="@(() => SortBy("RowsInserted"))" class="sortable @(SortClass("RowsInserted"))">Inserite</th>
-                        <th @onclick="@(() => SortBy("DurationSeconds"))" class="sortable @(SortClass("DurationSeconds"))">Durata (s)</th>
+                        <th @onclick="@(() => SortBy("DurationSeconds"))" class="sortable @(SortClass("DurationSeconds"))">Durata</th>
                         <th>Errore</th>
                     </tr>
                 </thead>
@@ -66,6 +68,24 @@ else
                     @foreach (var r in Filtered())
                     {
                         <tr class="@(r.IsSuccess ? "" : "log-row-err")">
+                            <td class="log-execid">
+                                @if (r.ExecutionId.HasValue)
+                                {
+                                    <span class="execid-short" title="@r.ExecutionId.Value.ToString("D")">@(r.ExecutionId.Value.ToString("D")[..8])…</span>
+                                    <button class="copy-btn" title="Copia ExecutionId"
+                                            onclick="@(() => CopyToClipboard(r.ExecutionId!.Value.ToString("D")))">
+                                        @if (_copiedId == r.ExecutionId.Value)
+                                        {
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4caf90" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                                        }
+                                        else
+                                        {
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4a7aaa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                        }
+                                    </button>
+                                }
+                                else { <span style="color:#334">—</span> }
+                            </td>
                             <td class="log-date">@r.ExecutionDate.ToString("yyyy-MM-dd HH:mm:ss")</td>
                             <td>@r.ReportName</td>
                             <td>
@@ -75,7 +95,7 @@ else
                             </td>
                             <td class="log-num">@r.RowsRetrieved.ToString("N0")</td>
                             <td class="log-num">@r.RowsInserted.ToString("N0")</td>
-                            <td class="log-num">@r.DurationSeconds</td>
+                            <td class="log-num log-duration">@FormatDuration(r.DurationSeconds)</td>
                             <td class="log-err">@(r.ErrorMessage ?? "—")</td>
                         </tr>
                     }
@@ -112,6 +132,17 @@ else
 .logs-table tr:hover td { background:#13132a; }
 .log-row-err td { background:#1a0f0f; }
 .log-row-err:hover td { background:#1f1010; }
+.log-execid { font-family:monospace; font-size:.75rem; color:#5a7fa0; white-space:nowrap;
+              display:flex; align-items:center; gap:.3rem; }
+.execid-short { cursor:default; }
+.copy-btn {
+    background: none; border: none; padding: 0; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 20px; height: 20px; border-radius: 4px;
+    opacity: 0.5; transition: opacity 0.15s, background 0.15s;
+    flex-shrink: 0;
+}
+.copy-btn:hover { opacity: 1; background: #1e2540; }
 .log-date { white-space:nowrap; color:#778; font-family:monospace; }
 .log-num  { text-align:right; font-family:monospace; }
 .log-err  { color:#e07070; font-size:.78rem; max-width:280px; word-break:break-word; }
@@ -122,6 +153,7 @@ else
 .badge-warn { background:#2a200a; color:#e0b050; }
 .logs-footer { padding:.5rem 1rem; color:#445; font-size:.75rem; border-top:1px solid #1e1e38;
                text-align:right; }
+.log-duration { font-family:monospace; letter-spacing:.04em; color:#7ab8e0; }
 </style>
 
 @code {
@@ -131,6 +163,7 @@ else
     private string _search = string.Empty;
     private string _sortCol = "ExecutionDate";
     private bool _sortDesc = true;
+    private Guid? _copiedId = null;
 
     protected override async Task OnInitializedAsync()
     {
@@ -154,7 +187,7 @@ else
             await using var conn = new SqlConnection(cs);
             await conn.OpenAsync();
             await using var cmd = new SqlCommand(@"
-                SELECT ExecutionDate, ReportName, Status,
+                SELECT ExecutionId, ExecutionDate, ReportName, Status,
                        RowsRetrieved, RowsInserted, DurationSeconds, ErrorMessage
                 FROM dbo.ExecutionLog
                 ORDER BY ExecutionDate DESC", conn);
@@ -162,13 +195,14 @@ else
             while (await rdr.ReadAsync())
                 list.Add(new ExecutionLogEntry
                 {
-                    ExecutionDate   = rdr.GetDateTime(0),
-                    ReportName      = rdr.GetString(1),
-                    Status          = rdr.GetString(2),
-                    RowsRetrieved   = rdr.IsDBNull(3) ? 0 : rdr.GetInt32(3),
-                    RowsInserted    = rdr.IsDBNull(4) ? 0 : rdr.GetInt32(4),
-                    DurationSeconds = rdr.IsDBNull(5) ? 0 : rdr.GetInt32(5),
-                    ErrorMessage    = rdr.IsDBNull(6) ? null : rdr.GetString(6),
+                    ExecutionId     = rdr.IsDBNull(0) ? null : rdr.GetGuid(0),
+                    ExecutionDate   = rdr.GetDateTime(1),
+                    ReportName      = rdr.GetString(2),
+                    Status          = rdr.GetString(3),
+                    RowsRetrieved   = rdr.IsDBNull(4) ? 0 : rdr.GetInt32(4),
+                    RowsInserted    = rdr.IsDBNull(5) ? 0 : rdr.GetInt32(5),
+                    DurationSeconds = rdr.IsDBNull(6) ? 0 : rdr.GetInt32(6),
+                    ErrorMessage    = rdr.IsDBNull(7) ? null : rdr.GetString(7),
                 });
             _all = list;
             _hasData = _all.Count > 0;
@@ -185,16 +219,18 @@ else
             var s = _search.Trim().ToLowerInvariant();
             q = q.Where(r => r.ReportName.ToLower().Contains(s)
                            || r.Status.ToLower().Contains(s)
-                           || (r.ErrorMessage?.ToLower().Contains(s) ?? false));
+                           || (r.ErrorMessage?.ToLower().Contains(s) ?? false)
+                           || (r.ExecutionId.HasValue && r.ExecutionId.Value.ToString("D").ToLower().Contains(s)));
         }
         q = _sortCol switch
         {
-            "ReportName"      => _sortDesc ? q.OrderByDescending(r => r.ReportName)      : q.OrderBy(r => r.ReportName),
-            "Status"          => _sortDesc ? q.OrderByDescending(r => r.Status)           : q.OrderBy(r => r.Status),
-            "RowsRetrieved"   => _sortDesc ? q.OrderByDescending(r => r.RowsRetrieved)   : q.OrderBy(r => r.RowsRetrieved),
-            "RowsInserted"    => _sortDesc ? q.OrderByDescending(r => r.RowsInserted)    : q.OrderBy(r => r.RowsInserted),
-            "DurationSeconds" => _sortDesc ? q.OrderByDescending(r => r.DurationSeconds) : q.OrderBy(r => r.DurationSeconds),
-            _                 => _sortDesc ? q.OrderByDescending(r => r.ExecutionDate)   : q.OrderBy(r => r.ExecutionDate),
+            "ExecutionId"     => _sortDesc ? q.OrderByDescending(r => r.ExecutionId)      : q.OrderBy(r => r.ExecutionId),
+            "ReportName"      => _sortDesc ? q.OrderByDescending(r => r.ReportName)       : q.OrderBy(r => r.ReportName),
+            "Status"          => _sortDesc ? q.OrderByDescending(r => r.Status)            : q.OrderBy(r => r.Status),
+            "RowsRetrieved"   => _sortDesc ? q.OrderByDescending(r => r.RowsRetrieved)    : q.OrderBy(r => r.RowsRetrieved),
+            "RowsInserted"    => _sortDesc ? q.OrderByDescending(r => r.RowsInserted)     : q.OrderBy(r => r.RowsInserted),
+            "DurationSeconds" => _sortDesc ? q.OrderByDescending(r => r.DurationSeconds)  : q.OrderBy(r => r.DurationSeconds),
+            _                 => _sortDesc ? q.OrderByDescending(r => r.ExecutionDate)    : q.OrderBy(r => r.ExecutionDate),
         };
         return q;
     }
@@ -207,6 +243,27 @@ else
 
     private string SortClass(string col) =>
         _sortCol == col ? (_sortDesc ? "sort-desc" : "sort-asc") : "";
+
+    private async Task CopyToClipboard(string text)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", text);
+            _copiedId = Guid.Parse(text);
+            StateHasChanged();
+            await Task.Delay(2000);
+            _copiedId = null;
+            StateHasChanged();
+        }
+        catch { }
+    }
+
+    private static string FormatDuration(int totalSeconds)
+    {
+        if (totalSeconds <= 0) return "00:00:00";
+        var ts = TimeSpan.FromSeconds(totalSeconds);
+        return $"{(int)ts.TotalHours:D2}:{ts.Minutes:D2}:{ts.Seconds:D2}";
+    }
 
     private void OnStateChanged() => _ = InvokeAsync(async () =>
     {

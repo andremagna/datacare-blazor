@@ -11,6 +11,8 @@ public class EtlService
     private readonly HttpClient _http = new();
     private string _token = string.Empty;
 
+    private const int BatchSize = 200;
+
     public EtlService(EtlStateService state) => _state = state;
 
     public async Task RunAsync(RunConfig cfg, CancellationToken ct)
@@ -123,15 +125,15 @@ public class EtlService
     }
 
     // ── STEP 1a: Exchange ─────────────────────────────────────────────────────
-    // Uses exact Graph CSV column names → ExchangeRow typed mapping
-    // Department = real value from Graph (null if not set)
-    // Deep stats via EXO PowerShell cmdlets (if available) or Graph report data
+    // Fetches Graph CSV report, resolves department + country per-user via Graph,
+    // logs progress every BatchSize records.
     private async Task<List<ExchangeRow>> FetchExchangeAsync(RunConfig cfg, CancellationToken ct)
     {
         var csvRows = await FetchCsvAsync(
             $"https://graph.microsoft.com/v1.0/reports/getMailboxUsageDetail(period='{cfg.Period}')", ct);
 
         var result = new List<ExchangeRow>();
+        int processed = 0;
 
         foreach (var row in csvRows)
         {
@@ -141,19 +143,18 @@ public class EtlService
                       .Trim().TrimStart('\uFEFF');
             if (string.IsNullOrWhiteSpace(upn)) continue;
 
-            // Read department directly from Graph — real value or null
-            string? dept = await GetUserRealDepartmentAsync(upn, ct);
+            // Resolve department AND country in a single Graph call — mirrors PS: ?$select=department,country
+            var (dept, country) = await GetUserDepartmentAndCountryAsync(upn, ct);
 
             long storageBytes = ParseLong(row.GetValueOrDefault("Storage Used (Byte)"));
-            long deletedCount = ParseLong(row.GetValueOrDefault("Deleted Item Count"));
             long deletedSize = ParseLong(row.GetValueOrDefault("Deleted Item Size (Byte)"));
-            long deletedQuota = ParseLong(row.GetValueOrDefault("Deleted Item Quota (Byte)"));
 
-            var er = new ExchangeRow
+            result.Add(new ExchangeRow
             {
                 User_Principal_Name = upn,
                 Display_Name = row.GetValueOrDefault("Display Name"),
                 Department = dept,
+                CountryOrRegion = country,
                 Report_Refresh_Date = GetRefreshDate(row),
                 Is_Deleted = row.GetValueOrDefault("Is Deleted"),
                 Deleted_Date = row.GetValueOrDefault("Deleted Date"),
@@ -161,153 +162,35 @@ public class EtlService
                 Last_Activity_Date = row.GetValueOrDefault("Last Activity Date"),
                 Item_Count = ParseLong(row.GetValueOrDefault("Item Count")),
                 Storage_Used_Byte = storageBytes,
-                StorageUsedGB = storageBytes > 0 ? Math.Round(storageBytes / (double)(1024L * 1024 * 1024), 2) : 0,
+                StorageUsedGB = storageBytes > 0 ? Math.Round(storageBytes / (double)(1024L * 1024 * 1024), 5) : 0,
                 Issue_Warning_Quota_Byte = ParseLong(row.GetValueOrDefault("Issue Warning Quota (Byte)")),
                 Prohibit_Send_Quota_Byte = ParseLong(row.GetValueOrDefault("Prohibit Send Quota (Byte)")),
                 Prohibit_Send_Receive_Quota_Byte = ParseLong(row.GetValueOrDefault("Prohibit Send/Receive Quota (Byte)")),
-                Deleted_Item_Count = deletedCount,
+                Deleted_Item_Count = ParseLong(row.GetValueOrDefault("Deleted Item Count")),
                 Deleted_Item_Size_Byte = deletedSize,
-                Deleted_Item_Quota_Byte = deletedQuota,
+                DeletedItemSizeGB = deletedSize > 0 ? Math.Round(deletedSize / (double)(1024L * 1024 * 1024), 5) : 0,
+                Deleted_Item_Quota_Byte = ParseLong(row.GetValueOrDefault("Deleted Item Quota (Byte)")),
                 Has_Archive = row.GetValueOrDefault("Has Archive"),
                 Report_Period = row.GetValueOrDefault("Report Period"),
-            };
+            });
 
-            // Deep stats via EXO cmdlets (only if PowerShell + EXO module available)
-            if (string.Equals(dept, cfg.Department, StringComparison.OrdinalIgnoreCase))
-            {
-                try { await EnrichWithEXOStatsAsync(er, ct); }
-                catch (Exception ex)
-                { Log($"  EXO deep stats skipped for {upn}: {ex.Message}", TerminalLevel.Warning); }
-            }
-
-            Log($"  Exchange → {upn} [dept={dept ?? "null"}]");
-            result.Add(er);
+            processed++;
+            if (processed % BatchSize == 0)
+                Log($"  Exchange → batch {processed / BatchSize} ({processed} records processed)...", TerminalLevel.Info);
         }
 
+        Log($"  Exchange: {result.Count} rows fetched", TerminalLevel.Info);
         return result;
     }
 
-    // ── EXO deep stats via PowerShell cmdlets ─────────────────────────────────
-    // Mirrors Get-ExchangeMailboxDeepStats from the PS script.
-    // Requires ExchangeOnlineManagement module installed and Connect-ExchangeOnline
-    // called before. If the module is not available the method throws and the
-    // caller catches it gracefully (stats remain at default 0 values).
-    private async Task EnrichWithEXOStatsAsync(ExchangeRow er, CancellationToken ct)
-    {
-        await Task.Run(() =>
-        {
-            using var ps = System.Management.Automation.PowerShell.Create();
-
-            // Primary mailbox statistics
-            ps.AddCommand("Get-EXOMailboxStatistics")
-              .AddParameter("Identity", er.User_Principal_Name)
-              .AddParameter("Properties", new[] { "ItemCount", "TotalItemSize",
-                                                   "SystemMessageCount", "SystemMessageSize" });
-
-            var primaryResult = ps.Invoke();
-            ps.Commands.Clear();
-
-            if (primaryResult.Count > 0)
-            {
-                var obj = primaryResult[0];
-                er.Primary_Item_Count = GetPSInt(obj, "ItemCount");
-                er.Primary_TotalItemSize = GetPSStr(obj, "TotalItemSize");
-                er.Primary_Total_Size_Bytes = ConvertToBytes(er.Primary_TotalItemSize);
-                er.Primary_SystemMessage_Count = GetPSInt(obj, "SystemMessageCount");
-                er.Primary_SystemMessage_Size_Bytes = ConvertToBytes(GetPSStr(obj, "SystemMessageSize"));
-            }
-
-            // Primary recoverable items
-            ps.AddCommand("Get-MailboxFolderStatistics")
-              .AddParameter("Identity", er.User_Principal_Name)
-              .AddParameter("FolderScope", "RecoverableItems");
-
-            var primaryFolders = ps.Invoke();
-            ps.Commands.Clear();
-
-            foreach (var folder in primaryFolders)
-            {
-                if (GetPSStr(folder, "Name") == "Recoverable Items")
-                {
-                    er.Primary_Recoverable_Count = GetPSInt(folder, "ItemsInFolderAndSubfolders");
-                    er.Primary_Recoverable_Size_Bytes = ConvertToBytes(GetPSStr(folder, "FolderAndSubfolderSize"));
-                    er.Primary_Recoverable_Mode = "Aggregated";
-                    break;
-                }
-            }
-
-            // Archive mailbox statistics
-            ps.AddCommand("Get-EXOMailboxStatistics")
-              .AddParameter("Identity", er.User_Principal_Name)
-              .AddParameter("Archive", true)
-              .AddParameter("Properties", new[] { "ItemCount", "TotalItemSize",
-                                                   "SystemMessageCount", "SystemMessageSize" });
-
-            var archiveResult = ps.Invoke();
-            ps.Commands.Clear();
-
-            if (archiveResult.Count > 0)
-            {
-                var obj = archiveResult[0];
-                er.Archive_Item_Count = GetPSInt(obj, "ItemCount");
-                er.Archive_TotalItemSize = GetPSStr(obj, "TotalItemSize");
-                er.Archive_Total_Size_Bytes = ConvertToBytes(er.Archive_TotalItemSize);
-                er.Archive_SystemMessage_Count = GetPSInt(obj, "SystemMessageCount");
-                er.Archive_SystemMessage_Size_Bytes = ConvertToBytes(GetPSStr(obj, "SystemMessageSize"));
-
-                // Archive recoverable items
-                ps.AddCommand("Get-MailboxFolderStatistics")
-                  .AddParameter("Identity", er.User_Principal_Name)
-                  .AddParameter("Archive", true)
-                  .AddParameter("FolderScope", "RecoverableItems");
-
-                var archiveFolders = ps.Invoke();
-                ps.Commands.Clear();
-
-                foreach (var folder in archiveFolders)
-                {
-                    if (GetPSStr(folder, "Name") == "Recoverable Items")
-                    {
-                        er.Archive_Recoverable_Count = GetPSInt(folder, "ItemsInFolderAndSubfolders");
-                        er.Archive_Recoverable_Size_Bytes = ConvertToBytes(GetPSStr(folder, "FolderAndSubfolderSize"));
-                        er.Archive_Recoverable_Mode = "Aggregated";
-                        break;
-                    }
-                }
-            }
-        }, ct);
-    }
-
-    // Mirrors Convert-ToBytes from PS script
-    private static long ConvertToBytes(string? s)
-    {
-        if (string.IsNullOrWhiteSpace(s)) return 0;
-        var m = System.Text.RegularExpressions.Regex.Match(s, @"\((\d[\d,]*) bytes\)");
-        if (m.Success) return long.Parse(m.Groups[1].Value.Replace(",", ""));
-        m = System.Text.RegularExpressions.Regex.Match(s, @"([\d,.]+)\s*GB");
-        if (m.Success) return (long)(double.Parse(m.Groups[1].Value,
-            System.Globalization.CultureInfo.InvariantCulture) * 1_073_741_824);
-        m = System.Text.RegularExpressions.Regex.Match(s, @"([\d,.]+)\s*MB");
-        if (m.Success) return (long)(double.Parse(m.Groups[1].Value,
-            System.Globalization.CultureInfo.InvariantCulture) * 1_048_576);
-        m = System.Text.RegularExpressions.Regex.Match(s, @"([\d,.]+)\s*KB");
-        if (m.Success) return (long)(double.Parse(m.Groups[1].Value,
-            System.Globalization.CultureInfo.InvariantCulture) * 1_024);
-        return 0;
-    }
-
-    private static int GetPSInt(System.Management.Automation.PSObject o, string p) =>
-        o.Properties[p]?.Value is int i ? i : 0;
-    private static string GetPSStr(System.Management.Automation.PSObject o, string p) =>
-        o.Properties[p]?.Value?.ToString() ?? "";
-
-    // ── STEP 1b: OneDrive — real department or null, correct field names ───────
+    // ── STEP 1b: OneDrive ─────────────────────────────────────────────────────
     private async Task<List<OneDriveRow>> FetchOneDriveAsync(RunConfig cfg, CancellationToken ct)
     {
         var csvRows = await FetchCsvAsync(
             $"https://graph.microsoft.com/v1.0/reports/getOneDriveUsageAccountDetail(period='{cfg.Period}')", ct);
 
         var result = new List<OneDriveRow>();
+        int processed = 0;
 
         foreach (var row in csvRows)
         {
@@ -317,10 +200,9 @@ public class EtlService
                       .Trim().TrimStart('\uFEFF');
             if (string.IsNullOrWhiteSpace(upn)) continue;
 
-            string? dept = await GetUserRealDepartmentAsync(upn, ct);
+            var (dept, country) = await GetUserDepartmentAndCountryAsync(upn, ct);
+
             long storageBytes = ParseLong(row.GetValueOrDefault("Storage Used (Byte)"));
-            double storageGB = storageBytes > 0
-                ? Math.Round(storageBytes / (double)(1024L * 1024 * 1024), 2) : 0;
 
             result.Add(new OneDriveRow
             {
@@ -330,21 +212,23 @@ public class EtlService
                 Owner_Display_Name = row.GetValueOrDefault("Owner Display Name"),
                 Is_Deleted = row.GetValueOrDefault("Is Deleted"),
                 Last_Activity_Date = row.GetValueOrDefault("Last Activity Date"),
-                // Exact CSV column name: "File Count" → int
                 File_Count = (int)ParseLong(row.GetValueOrDefault("File Count")),
-                // Exact CSV column name: "Active File Count"
                 Active_File_Count = (int)ParseLong(row.GetValueOrDefault("Active File Count")),
                 Storage_Used_Byte = storageBytes,
-                StorageUsedGB = storageGB,
+                StorageUsedGB = storageBytes > 0 ? Math.Round(storageBytes / (double)(1024L * 1024 * 1024), 5) : 0,
                 Storage_Allocated_Byte = ParseLong(row.GetValueOrDefault("Storage Allocated (Byte)")),
                 Owner_Principal_Name = upn,
                 Department = dept,
+                CountryOrRegion = country,
                 Report_Period = row.GetValueOrDefault("Report Period"),
             });
 
-            Log($"  OneDrive → {upn} [dept={dept ?? "null"}] {storageGB:F2} GB");
+            processed++;
+            if (processed % BatchSize == 0)
+                Log($"  OneDrive → batch {processed / BatchSize} ({processed} records processed)...", TerminalLevel.Info);
         }
 
+        Log($"  OneDrive: {result.Count} rows fetched", TerminalLevel.Info);
         return result;
     }
 
@@ -355,15 +239,21 @@ public class EtlService
             $"https://graph.microsoft.com/v1.0/reports/getSharePointSiteUsageDetail(period='{cfg.Period}')", ct);
 
         var result = new List<SharePointRow>();
+        int processed = 0;
 
         foreach (var row in csvRows)
         {
+            ct.ThrowIfCancellationRequested();
+
             long storageBytes = ParseLong(row.GetValueOrDefault("Storage Used (Byte)"));
-            double storageGB = storageBytes > 0
-                ? Math.Round(storageBytes / (double)(1024L * 1024 * 1024), 2) : 0;
 
             var ownerUpn = (row.GetValueOrDefault("Owner Principal Name") ?? "").Trim();
             if (string.IsNullOrWhiteSpace(ownerUpn)) ownerUpn = "N/A";
+
+            string? dept = null;
+            string? country = null;
+            if (ownerUpn != "N/A")
+                (dept, country) = await GetUserDepartmentAndCountryAsync(ownerUpn, ct);
 
             result.Add(new SharePointRow
             {
@@ -378,15 +268,21 @@ public class EtlService
                 Page_View_Count = (int)ParseLong(row.GetValueOrDefault("Page View Count")),
                 Visited_Page_Count = (int)ParseLong(row.GetValueOrDefault("Visited Page Count")),
                 Storage_Used_Byte = storageBytes,
-                StorageUsedGB = storageGB,
+                StorageUsedGB = storageBytes > 0 ? Math.Round(storageBytes / (double)(1024L * 1024 * 1024), 5) : 0,
                 Storage_Allocated_Byte = ParseLong(row.GetValueOrDefault("Storage Allocated (Byte)")),
                 Root_Web_Template = row.GetValueOrDefault("Root Web Template"),
                 Owner_Principal_Name = ownerUpn,
+                Department = dept,
+                CountryOrRegion = country,
                 Report_Period = row.GetValueOrDefault("Report Period"),
             });
+
+            processed++;
+            if (processed % BatchSize == 0)
+                Log($"  SharePoint → batch {processed / BatchSize} ({processed} records processed)...", TerminalLevel.Info);
         }
 
-        Log($"  SharePoint: {result.Count} rows");
+        Log($"  SharePoint: {result.Count} rows fetched", TerminalLevel.Info);
         return result;
     }
 
@@ -409,6 +305,7 @@ public class EtlService
             var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
             if (doc.RootElement.TryGetProperty("value", out var arr))
                 foreach (var u in arr.EnumerateArray())
+                {
                     all.Add(new UserRow
                     {
                         Id = Str(u, "id"),
@@ -418,36 +315,44 @@ public class EtlService
                         Department = NullIfEmpty(Str(u, "department")),
                         JobTitle = NullIfEmpty(Str(u, "jobTitle")),
                         AccountEnabled = u.TryGetProperty("accountEnabled", out var ae)
-                                           ? ae.GetBoolean().ToString() : null,
+                                             ? ae.GetBoolean().ToString() : null,
                         CreatedDateTime = NullIfEmpty(Str(u, "createdDateTime")),
                         CountryOrRegion = NullIfEmpty(Str(u, "country")),
                     });
+
+                    if (all.Count % BatchSize == 0)
+                        Log($"  Users → batch {all.Count / BatchSize} ({all.Count} records processed)...", TerminalLevel.Info);
+                }
 
             next = doc.RootElement.TryGetProperty("@odata.nextLink", out var nl)
                    ? nl.GetString() : null;
         }
 
-        Log($"  Users: {all.Count} records");
+        Log($"  Users: {all.Count} records fetched", TerminalLevel.Info);
         return all;
     }
 
-    // ── Department lookup — returns real value or null ────────────────────────
-    private async Task<string?> GetUserRealDepartmentAsync(string upn, CancellationToken ct)
+    // ── Department + Country lookup — single Graph call per user ─────────────
+    // Mirrors PS: ?$select=department,country per ogni UPN
+    private async Task<(string? dept, string? country)> GetUserDepartmentAndCountryAsync(
+        string upn, CancellationToken ct)
     {
         try
         {
             var req = new HttpRequestMessage(HttpMethod.Get,
-                $"https://graph.microsoft.com/v1.0/users/{Uri.EscapeDataString(upn)}?$select=department");
+                $"https://graph.microsoft.com/v1.0/users/{Uri.EscapeDataString(upn)}?$select=department,country");
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _token);
+            req.Headers.Add("ConsistencyLevel", "eventual");
 
             var resp = await _http.SendAsync(req, ct);
-            if (!resp.IsSuccessStatusCode) return null;
+            if (!resp.IsSuccessStatusCode) return (null, null);
 
             var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
             var dept = doc.RootElement.TryGetProperty("department", out var d) ? d.GetString() : null;
-            return NullIfEmpty(dept);
+            var country = doc.RootElement.TryGetProperty("country", out var c) ? c.GetString() : null;
+            return (NullIfEmpty(dept), NullIfEmpty(country));
         }
-        catch { return null; }
+        catch { return (null, null); }
     }
 
     // ── Bulk insert — typed rows → SQL via DataTable ──────────────────────────
@@ -493,10 +398,9 @@ public class EtlService
     }
 
     // ── PowerBI model ─────────────────────────────────────────────────────────
+    // Mirrors CreatePowerBIDataModelHistory from the PS script (append-only history).
     private async Task BuildPowerBIModelAsync(RunConfig cfg, CancellationToken ct)
     {
-        // PowerBIDataModelHistory is an append-only history table — no backup needed,
-        // just insert the per-department aggregation rows for this execution.
         var execId = Guid.NewGuid();
         string sql = $"DECLARE @ExecutionId UNIQUEIDENTIFIER = '{execId}';\n" +
                      TableDdl.PowerBIAggregateQuery;
@@ -504,6 +408,7 @@ public class EtlService
         Log($"  dbo.PowerBIDataModelHistory populated (ExecutionId={execId})", TerminalLevel.Success);
     }
 
+    // Mirrors CreatePowerBIDataModelCountryOrRegion from the PS script.
     private async Task BuildCountryOrRegionAsync(RunConfig cfg, CancellationToken ct) =>
         await ExecAsync(cfg.TargetConnectionString, @"
             INSERT INTO dbo.PowerBICountryOrRegion (Department, CountryName, CountryCount)
@@ -599,15 +504,9 @@ public class EtlService
     }
 
     // ── Graph auth — certificate-based client assertion (RS256 JWT) ──────────
-    // Mirrors Get-GraphAccessToken from the PowerShell script exactly:
-    //   1. Locate the certificate in CurrentUser\My by thumbprint
-    //   2. Build header  { alg:"RS256", typ:"JWT", x5t:<base64url cert hash> }
-    //   3. Build payload { aud, iss, sub, jti, nbf, exp }
-    //   4. Sign header.payload with RSA-SHA256 (PKCS#1 v1.5)
-    //   5. POST client_credentials + client_assertion to AAD token endpoint
+    // Mirrors Get-GraphAccessToken from the PowerShell script exactly.
     private async Task AcquireTokenAsync(RunConfig cfg, CancellationToken ct)
     {
-        // ── 1. Find certificate ───────────────────────────────────────────────
         var thumbprint = cfg.CertificateThumbprint.Trim();
         var store = new System.Security.Cryptography.X509Certificates.X509Store(
             System.Security.Cryptography.X509Certificates.StoreName.My,
@@ -625,20 +524,15 @@ public class EtlService
 
         var cert = certs[0];
         if (!cert.HasPrivateKey)
-            throw new InvalidOperationException(
-                "Certificate does not have a private key.");
+            throw new InvalidOperationException("Certificate does not have a private key.");
 
-        // ── 2. Build JWT header ───────────────────────────────────────────────
-        // x5t = base64url of the certificate SHA-1 hash (same as PS ConvertTo-Base64Url)
         string x5t = Base64UrlEncode(cert.GetCertHash());
 
         var headerObj = new { alg = "RS256", typ = "JWT", x5t };
-        string headerJson = System.Text.Json.JsonSerializer.Serialize(headerObj);
-        string headerB64 = Base64UrlEncode(System.Text.Encoding.UTF8.GetBytes(headerJson));
+        string headerB64 = Base64UrlEncode(
+            System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(headerObj)));
 
-        // ── 3. Build JWT payload ──────────────────────────────────────────────
         var now = DateTimeOffset.UtcNow;
-        var exp = now.AddMinutes(10);
         var payloadObj = new
         {
             aud = $"https://login.microsoftonline.com/{cfg.TenantId}/oauth2/v2.0/token",
@@ -646,14 +540,11 @@ public class EtlService
             sub = cfg.ClientId,
             jti = Guid.NewGuid().ToString(),
             nbf = now.ToUnixTimeSeconds(),
-            exp = exp.ToUnixTimeSeconds(),
+            exp = now.AddMinutes(10).ToUnixTimeSeconds(),
         };
-        string payloadJson = System.Text.Json.JsonSerializer.Serialize(payloadObj);
-        string payloadB64 = Base64UrlEncode(System.Text.Encoding.UTF8.GetBytes(payloadJson));
+        string payloadB64 = Base64UrlEncode(
+            System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payloadObj)));
 
-        // ── 4. Sign header.payload with RSA-SHA256 ────────────────────────────
-        // Try modern GetRSAPrivateKey() first (same as PS try block),
-        // fall back to legacy RSACryptoServiceProvider (same as PS fallback).
         string unsignedToken = $"{headerB64}.{payloadB64}";
         byte[] bytesToSign = System.Text.Encoding.UTF8.GetBytes(unsignedToken);
         byte[] signatureBytes;
@@ -669,7 +560,6 @@ public class EtlService
         }
         else
         {
-            // Legacy CSP fallback — mirrors PS fallback branch
             var csp = cert.PrivateKey as System.Security.Cryptography.RSACryptoServiceProvider
                       ?? throw new InvalidOperationException(
                              "No usable RSA private key found on the certificate.");
@@ -679,7 +569,6 @@ public class EtlService
 
         string clientAssertion = $"{unsignedToken}.{Base64UrlEncode(signatureBytes)}";
 
-        // ── 5. POST to AAD token endpoint ─────────────────────────────────────
         var body = new FormUrlEncodedContent(new[]
         {
             new KeyValuePair<string,string>("client_id",             cfg.ClientId),
@@ -698,10 +587,6 @@ public class EtlService
         _token = doc.RootElement.GetProperty("access_token").GetString()!;
     }
 
-    /// <summary>
-    /// Mirrors ConvertTo-Base64Url from the PowerShell script:
-    /// standard base64, strip trailing '=', replace '+' with '-' and '/' with '_'.
-    /// </summary>
     private static string Base64UrlEncode(byte[] bytes) =>
         Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
@@ -805,7 +690,6 @@ public class EtlService
 // ── Typed row models + interface ─────────────────────────────────────────────
 public interface IRowMappable
 {
-    // Returns exact SQL column name → value (null = DBNull)
     Dictionary<string, object?> ToColumnDictionary();
 }
 
@@ -814,6 +698,7 @@ public class ExchangeRow : IRowMappable
     public string? User_Principal_Name { get; set; }
     public string? Display_Name { get; set; }
     public string? Department { get; set; }
+    public string? CountryOrRegion { get; set; }
     public string? Report_Refresh_Date { get; set; }
     public string? Is_Deleted { get; set; }
     public string? Deleted_Date { get; set; }
@@ -827,31 +712,17 @@ public class ExchangeRow : IRowMappable
     public long Prohibit_Send_Receive_Quota_Byte { get; set; }
     public long Deleted_Item_Count { get; set; }
     public long Deleted_Item_Size_Byte { get; set; }
+    public double DeletedItemSizeGB { get; set; }
     public long Deleted_Item_Quota_Byte { get; set; }
     public string? Has_Archive { get; set; }
     public string? Report_Period { get; set; }
-    public int Primary_Item_Count { get; set; }
-    public string? Primary_TotalItemSize { get; set; }
-    public long Primary_Total_Size_Bytes { get; set; }
-    public int Primary_SystemMessage_Count { get; set; }
-    public long Primary_SystemMessage_Size_Bytes { get; set; }
-    public int Primary_Recoverable_Count { get; set; }
-    public long Primary_Recoverable_Size_Bytes { get; set; }
-    public string Primary_Recoverable_Mode { get; set; } = "NotPresent";
-    public int Archive_Item_Count { get; set; }
-    public string? Archive_TotalItemSize { get; set; }
-    public long Archive_Total_Size_Bytes { get; set; }
-    public int Archive_SystemMessage_Count { get; set; }
-    public long Archive_SystemMessage_Size_Bytes { get; set; }
-    public int Archive_Recoverable_Count { get; set; }
-    public long Archive_Recoverable_Size_Bytes { get; set; }
-    public string Archive_Recoverable_Mode { get; set; } = "NotPresent";
 
     public Dictionary<string, object?> ToColumnDictionary() => new()
     {
         ["User_Principal_Name"] = User_Principal_Name,
         ["Display_Name"] = Display_Name,
         ["Department"] = Department,
+        ["CountryOrRegion"] = CountryOrRegion,
         ["___Report_Refresh_Date"] = Report_Refresh_Date,
         ["Is_Deleted"] = Is_Deleted,
         ["Deleted_Date"] = Deleted_Date,
@@ -865,25 +736,10 @@ public class ExchangeRow : IRowMappable
         ["Prohibit_Send_Receive_Quota__Byte_"] = Prohibit_Send_Receive_Quota_Byte,
         ["Deleted_Item_Count"] = Deleted_Item_Count,
         ["Deleted_Item_Size__Byte_"] = Deleted_Item_Size_Byte,
+        ["DeletedItemSizeGB"] = DeletedItemSizeGB,
         ["Deleted_Item_Quota__Byte_"] = Deleted_Item_Quota_Byte,
         ["Has_Archive"] = Has_Archive,
         ["Report_Period"] = Report_Period,
-        ["Primary_Item_Count"] = Primary_Item_Count,
-        ["Primary_TotalItemSize"] = Primary_TotalItemSize,
-        ["Primary_Total_Size_Bytes"] = Primary_Total_Size_Bytes,
-        ["Primary_SystemMessage_Count"] = Primary_SystemMessage_Count,
-        ["Primary_SystemMessage_Size_Bytes"] = Primary_SystemMessage_Size_Bytes,
-        ["Primary_Recoverable_Count"] = Primary_Recoverable_Count,
-        ["Primary_Recoverable_Size_Bytes"] = Primary_Recoverable_Size_Bytes,
-        ["Primary_Recoverable_Mode"] = Primary_Recoverable_Mode,
-        ["Archive_Item_Count"] = Archive_Item_Count,
-        ["Archive_TotalItemSize"] = Archive_TotalItemSize,
-        ["Archive_Total_Size_Bytes"] = Archive_Total_Size_Bytes,
-        ["Archive_SystemMessage_Count"] = Archive_SystemMessage_Count,
-        ["Archive_SystemMessage_Size_Bytes"] = Archive_SystemMessage_Size_Bytes,
-        ["Archive_Recoverable_Count"] = Archive_Recoverable_Count,
-        ["Archive_Recoverable_Size_Bytes"] = Archive_Recoverable_Size_Bytes,
-        ["Archive_Recoverable_Mode"] = Archive_Recoverable_Mode,
     };
 }
 
@@ -902,6 +758,7 @@ public class OneDriveRow : IRowMappable
     public long Storage_Allocated_Byte { get; set; }
     public string Owner_Principal_Name { get; set; } = "";
     public string? Department { get; set; }
+    public string? CountryOrRegion { get; set; }
     public string? Report_Period { get; set; }
 
     public Dictionary<string, object?> ToColumnDictionary() => new()
@@ -919,6 +776,7 @@ public class OneDriveRow : IRowMappable
         ["Storage_Allocated__Byte_"] = Storage_Allocated_Byte,
         ["Owner_Principal_Name"] = Owner_Principal_Name,
         ["Department"] = Department,
+        ["CountryOrRegion"] = CountryOrRegion,
         ["Report_Period"] = Report_Period,
     };
 }
@@ -940,6 +798,8 @@ public class SharePointRow : IRowMappable
     public long Storage_Allocated_Byte { get; set; }
     public string? Root_Web_Template { get; set; }
     public string Owner_Principal_Name { get; set; } = "N/A";
+    public string? Department { get; set; }
+    public string? CountryOrRegion { get; set; }
     public string? Report_Period { get; set; }
 
     public Dictionary<string, object?> ToColumnDictionary() => new()
@@ -959,6 +819,8 @@ public class SharePointRow : IRowMappable
         ["Storage_Allocated__Byte_"] = Storage_Allocated_Byte,
         ["Root_Web_Template"] = Root_Web_Template,
         ["Owner_Principal_Name"] = Owner_Principal_Name,
+        ["Department"] = Department,
+        ["CountryOrRegion"] = CountryOrRegion,
         ["Report_Period"] = Report_Period,
     };
 }

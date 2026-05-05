@@ -3,6 +3,7 @@
 @using DataCareLite.Services
 @using Microsoft.Data.SqlClient
 @inject EtlStateService State
+@inject IJSRuntime JS
 @implements IDisposable
 
 <PageTitle>DataCare Dashboard</PageTitle>
@@ -62,16 +63,12 @@ else
             </div>
         </div>
 
-        <!-- ═══════════════════ USERS ═══════════════════ -->
-        <div class="section-band">
-            <span class="section-band-title">Users</span>
-        </div>
+        <!-- USERS -->
+        <div class="section-band"><span class="section-band-title">Users</span></div>
         <div class="cards-row mb-sm">
             <div class="dcard">
                 <div class="dcard-title">Number of users</div>
-                <svg viewBox="0 0 200 110" class="dchart">
-                    @MonthlyBarChart(_data.Select(r => (r.MonthLabel, (double)r.Users_Total)).ToList(), "#4a90d9")
-                </svg>
+                @BarChart("users", _data.Select(r => (r.MonthLabel, r.YearNum, (double)r.Users_Total)).ToList(), "#1B8FFF")
             </div>
             <div class="dcard dcard-map">
                 <div class="dcard-title">Country Involved</div>
@@ -79,34 +76,28 @@ else
                     <table class="ctable">
                         <thead><tr><th>Country</th><th class="ct-num">Count</th></tr></thead>
                         <tbody>
-                        @foreach (var c in _countries.Take(10))
-                        {
-                            <tr><td>@c.CountryName</td><td class="ct-num">@c.CountryCount</td></tr>
-                        }
+                            @foreach (var c in _countries.Take(10))
+                            {
+                                <tr><td>@c.CountryName</td><td class="ct-num">@c.CountryCount</td></tr>
+                            }
                         </tbody>
                     </table>
                 </div>
             </div>
         </div>
 
-        <!-- ═══════ ONEDRIVE + SHAREPOINT (side by side) ═══════ -->
+        <!-- ONEDRIVE + SHAREPOINT -->
         <div class="two-sections-row mb-sm">
             <div class="section-col">
-                <div class="section-band section-band-blue">
-                    <span class="section-band-title">OneDrive</span>
-                </div>
+                <div class="section-band section-band-blue"><span class="section-band-title">OneDrive</span></div>
                 <div class="cards-row no-mb">
                     <div class="dcard">
                         <div class="dcard-title">File Count</div>
-                        <svg viewBox="0 0 200 110" class="dchart">
-                            @MonthlyBarChart(_data.Select(r => (r.MonthLabel, (double)r.OneDrive_Total_File_Count)).ToList(), "#4a90d9")
-                        </svg>
+                        @BarChart("od-fc", _data.Select(r => (r.MonthLabel, r.YearNum, (double)r.OneDrive_Total_File_Count)).ToList(), "#1B8FFF")
                     </div>
                     <div class="dcard">
                         <div class="dcard-title">File Storage (GB)</div>
-                        <svg viewBox="0 0 200 110" class="dchart">
-                            @MonthlyBarChart(_data.Select(r => (r.MonthLabel, (double)r.OneDrive_Total_StorageUsedGB)).ToList(), "#4a90d9")
-                        </svg>
+                        @BarChart("od-gb", _data.Select(r => (r.MonthLabel, r.YearNum, r.OneDrive_Total_StorageUsedGB)).ToList(), "#1B8FFF")
                     </div>
                 </div>
             </div>
@@ -118,99 +109,49 @@ else
                 <div class="cards-row no-mb">
                     <div class="dcard">
                         <div class="dcard-title">File Count</div>
-                        <svg viewBox="0 0 200 110" class="dchart">
-                            @MonthlyBarChart(_data.Select(r => (r.MonthLabel, (double)r.SharePoint_Total_File_Count)).ToList(), "#4a90d9")
-                        </svg>
+                        @BarChart("sp-fc", _data.Select(r => (r.MonthLabel, r.YearNum, (double)r.SharePoint_Total_File_Count)).ToList(), "#00C9B1")
                     </div>
                     <div class="dcard">
                         <div class="dcard-title">File Storage (GB)</div>
-                        <svg viewBox="0 0 200 110" class="dchart">
-                            @MonthlyBarChart(_data.Select(r => (r.MonthLabel, (double)r.SharePoint_Total_StorageUsedGB)).ToList(), "#4a90d9")
-                        </svg>
+                        @BarChart("sp-gb", _data.Select(r => (r.MonthLabel, r.YearNum, r.SharePoint_Total_StorageUsedGB)).ToList(), "#00C9B1")
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- ═══════════════════ EXCHANGE ═══════════════════ -->
+        <!-- EXCHANGE -->
         <div class="section-band section-band-dark">
             <span class="section-badge-ex">E</span>
             <span class="section-band-title">Exchange</span>
         </div>
-        <div class="exchange-row">
-            <!-- Primary -->
-            <div class="exchange-col">
-                <div class="exchange-sub-header">Primary</div>
-                <div class="cards-row no-mb">
-                    <div class="dcard">
-                        <div class="dcard-title">Email Count</div>
-                        <svg viewBox="0 0 200 110" class="dchart">
-                            @MonthlyBarChart(_data.Select(r => (r.MonthLabel, (double)r.Exchange_Total_Primary_Item_Count)).ToList(), "#4a90d9")
-                        </svg>
-                    </div>
-                    <div class="dcard">
-                        <div class="dcard-title">Email Storage (GB)</div>
-                        <svg viewBox="0 0 200 110" class="dchart">
-                            @MonthlyBarChart(_data.Select(r => (r.MonthLabel, (double)r.Exchange_Total_Primary_Total_Size_GB)).ToList(), "#4a90d9")
-                        </svg>
-                    </div>
-                    <div class="dcard">
-                        <div class="dcard-title">Other Details</div>
-                        <svg viewBox="0 0 200 110" class="dchart">
-                            @MonthlyGroupedBarChart(
-                                _data.Select(r => r.MonthLabel).ToList(),
-                                new List<(string, Func<DashRow, double>, string)> {
-                                    ("Sys Msg",     r => (double)r.Exchange_Total_Primary_SystemMessage_Count, "#e975a8"),
-                                    ("Recoverable", r => (double)r.Exchange_Total_Primary_Recoverable_Count,  "#4a90d9"),
-                                },
-                                _data
-                            )
-                        </svg>
-                    </div>
-                </div>
+        <div class="cards-row no-mb">
+            <div class="dcard">
+                <div class="dcard-title">Email Count</div>
+                @BarChart("ex-cnt", _data.Select(r => (r.MonthLabel, r.YearNum, (double)r.Exchange_Item_Count)).ToList(), "#1B8FFF")
             </div>
-            <!-- Archive -->
-            <div class="exchange-col">
-                <div class="exchange-sub-header">Archive</div>
-                <div class="cards-row no-mb">
-                    <div class="dcard">
-                        <div class="dcard-title">Email Count</div>
-                        <svg viewBox="0 0 200 110" class="dchart">
-                            @MonthlyBarChart(_data.Select(r => (r.MonthLabel, (double)r.Exchange_Total_Archive_Item_Count)).ToList(), "#4a90d9")
-                        </svg>
-                    </div>
-                    <div class="dcard">
-                        <div class="dcard-title">Email Storage (GB)</div>
-                        <svg viewBox="0 0 200 110" class="dchart">
-                            @MonthlyBarChart(_data.Select(r => (r.MonthLabel, (double)r.Exchange_Total_Archive_Total_Size_GB)).ToList(), "#4a90d9")
-                        </svg>
-                    </div>
-                    <div class="dcard">
-                        <div class="dcard-title">Other Details</div>
-                        <svg viewBox="0 0 200 110" class="dchart">
-                            @MonthlyGroupedBarChart(
-                                _data.Select(r => r.MonthLabel).ToList(),
-                                new List<(string, Func<DashRow, double>, string)> {
-                                    ("Sys Msg",     r => (double)r.Exchange_Total_Archive_SystemMessage_Count, "#e975a8"),
-                                    ("Recoverable", r => (double)r.Exchange_Total_Archive_Recoverable_Count,   "#4a90d9"),
-                                },
-                                _data
-                            )
-                        </svg>
-                    </div>
-                </div>
+            <div class="dcard">
+                <div class="dcard-title">Storage (GB)</div>
+                @BarChart("ex-gb", _data.Select(r => (r.MonthLabel, r.YearNum, r.Exchange_StorageUsedGB)).ToList(), "#1B8FFF")
+            </div>
+            <div class="dcard">
+                <div class="dcard-title">Deleted Items</div>
+                @GroupedBarChart("ex-del",
+                    _data.Select(r => (r.MonthLabel, r.YearNum)).ToList(),
+                    new List<(string, Func<DashRow, double>, string)> {
+                        ("Count",   r => (double)r.Exchange_Deleted_Item_Count, "#1B8FFF"),
+                        ("Size GB", r => r.Exchange_DeletedItemSizeGB,           "#00C9B1"),
+                    }, _data)
             </div>
         </div>
-
     </div>
 }
 
 @code {
     private bool _loading = true;
-    private List<DashRow>    _data        = new();
-    private List<CountryRow> _countries   = new();
-    private List<string>     _departments = new();
-    private string           _selectedDept = "";
+    private List<DashRow> _data = new();
+    private List<CountryRow> _countries = new();
+    private List<string> _departments = new();
+    private string _selectedDept = "";
 
     protected override async Task OnInitializedAsync()
     {
@@ -226,44 +167,31 @@ else
         _loading = true;
         var cs = State.LastConnectionString;
         if (string.IsNullOrWhiteSpace(cs)) { _loading = false; return; }
-
         try
         {
             await EnsureHistoryPopulatedAsync(cs);
-
             if (_departments.Count == 0)
                 _departments = await QueryListAsync(cs, TableDdl.DepartmentListQuery(), r => r.GetString(0));
 
-            // One row per calendar month (full history, not just last run)
             _data = await QueryListAsync(cs, TableDdl.DashboardQuery(_selectedDept), r => new DashRow
             {
-                MonthLabel  = r.IsDBNull(0)  ? "" : r.GetString(0),
-                YearNum     = r.IsDBNull(1)  ? 0  : r.GetInt32(1),
-                MonthNum    = r.IsDBNull(2)  ? 0  : r.GetInt32(2),
-                Exchange_Total_Primary_Item_Count               = r.IsDBNull(3)  ? 0 : r.GetInt64(3),
-                Exchange_Total_Archive_Item_Count               = r.IsDBNull(4)  ? 0 : r.GetInt64(4),
-                Exchange_Total_Primary_Total_Size_GB            = r.IsDBNull(5)  ? 0 : (double)r.GetDecimal(5),
-                Exchange_Total_Archive_Total_Size_GB            = r.IsDBNull(6)  ? 0 : (double)r.GetDecimal(6),
-                Exchange_Total_Primary_SystemMessage_Count      = r.IsDBNull(7)  ? 0 : r.GetInt64(7),
-                Exchange_Total_Primary_SystemMessage_Size_Bytes = r.IsDBNull(8)  ? 0 : r.GetInt64(8),
-                Exchange_Total_Primary_Recoverable_Count        = r.IsDBNull(9)  ? 0 : r.GetInt64(9),
-                Exchange_Total_Primary_Recoverable_Size_Bytes   = r.IsDBNull(10) ? 0 : r.GetInt64(10),
-                Exchange_Total_Archive_SystemMessage_Count      = r.IsDBNull(11) ? 0 : r.GetInt64(11),
-                Exchange_Total_Archive_SystemMessage_Size_Bytes = r.IsDBNull(12) ? 0 : r.GetInt64(12),
-                Exchange_Total_Archive_Recoverable_Count        = r.IsDBNull(13) ? 0 : r.GetInt64(13),
-                Exchange_Total_Archive_Recoverable_Size_Bytes   = r.IsDBNull(14) ? 0 : r.GetInt64(14),
-                Exchange_Total_Archive_Total_Size_Bytes         = r.IsDBNull(15) ? 0 : r.GetInt64(15),
-                OneDrive_Total_File_Count                       = r.IsDBNull(16) ? 0 : r.GetInt64(16),
-                OneDrive_Total_StorageUsedGB                    = r.IsDBNull(17) ? 0 : (double)r.GetDecimal(17),
-                SharePoint_Total_File_Count                     = r.IsDBNull(18) ? 0 : r.GetInt64(18),
-                SharePoint_Total_StorageUsedGB                  = r.IsDBNull(19) ? 0 : (double)r.GetDecimal(19),
-                Users_Total                                     = r.IsDBNull(20) ? 0 : r.GetInt32(20),
+                MonthLabel = r.IsDBNull(0) ? "" : r.GetString(0),
+                YearNum = r.IsDBNull(1) ? 0 : r.GetInt32(1),
+                MonthNum = r.IsDBNull(2) ? 0 : r.GetInt32(2),
+                Exchange_Item_Count = r.IsDBNull(3) ? 0 : r.GetInt64(3),
+                Exchange_Deleted_Item_Count = r.IsDBNull(4) ? 0 : r.GetInt64(4),
+                Exchange_StorageUsedGB = r.IsDBNull(5) ? 0 : (double)r.GetDecimal(5),
+                Exchange_DeletedItemSizeGB = r.IsDBNull(6) ? 0 : (double)r.GetDecimal(6),
+                OneDrive_Total_File_Count = r.IsDBNull(7) ? 0 : r.GetInt64(7),
+                OneDrive_Total_StorageUsedGB = r.IsDBNull(8) ? 0 : (double)r.GetDecimal(8),
+                SharePoint_Total_File_Count = r.IsDBNull(9) ? 0 : r.GetInt64(9),
+                SharePoint_Total_StorageUsedGB = r.IsDBNull(10) ? 0 : (double)r.GetDecimal(10),
+                Users_Total = r.IsDBNull(11) ? 0 : r.GetInt32(11),
             });
-
             _countries = await QueryListAsync(cs, TableDdl.CountryQuery(_selectedDept), r => new CountryRow
             {
-                CountryName  = r.IsDBNull(0) ? "Unknown" : r.GetString(0),
-                CountryCount = r.IsDBNull(1) ? 0         : r.GetInt32(1),
+                CountryName = r.IsDBNull(0) ? "Unknown" : r.GetString(0),
+                CountryCount = r.IsDBNull(1) ? 0 : r.GetInt32(1),
             });
         }
         catch { }
@@ -280,6 +208,7 @@ else
 
     public void Dispose() => State.OnChanged -= OnStateChanged;
 
+    // ── EnsureHistoryPopulated ────────────────────────────────────────────────
     private static async Task EnsureHistoryPopulatedAsync(string cs)
     {
         await using var conn = new SqlConnection(cs);
@@ -287,14 +216,11 @@ else
         await using var checkCmd = new SqlCommand(
             "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME='PowerBIDataModelHistory'", conn);
         if ((int)(await checkCmd.ExecuteScalarAsync())! == 0) return;
-
         await using var countCmd = new SqlCommand("SELECT COUNT(*) FROM dbo.PowerBIDataModelHistory", conn);
         if ((int)(await countCmd.ExecuteScalarAsync())! > 0) return;
-
         await using var srcCmd = new SqlCommand(
             "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME IN ('MicrosoftExchange','MicrosoftOneDrive','MicrosoftSharePoint','MicrosoftUsers')", conn);
         if ((int)(await srcCmd.ExecuteScalarAsync())! < 4) return;
-
         var execId = Guid.NewGuid();
         var sql = $"DECLARE @ExecutionId UNIQUEIDENTIFIER = '{execId}';\n" + TableDdl.PowerBIAggregateQuery;
         await using var cmd = new SqlCommand(sql, conn) { CommandTimeout = 180 };
@@ -312,224 +238,416 @@ else
         return list;
     }
 
-    // ── SVG bar chart — one bar per month ─────────────────────────────────────
-    private RenderFragment MonthlyBarChart(List<(string Month, double Val)> data, string color) => b =>
+    // ═════════════════════════════════════════════════════════════════════════
+    //  CHART RENDERERS — stile Power BI: barre piene, label sopra, assi puliti
+    // ═════════════════════════════════════════════════════════════════════════
+
+    // Dimensioni fisse
+    private const int CW = 360, CH = 200;
+    private const int PL = 48, PR = 12, PT = 26, PB = 46;   // PT alto per label sopra barre
+    private static int PlotW => CW - PL - PR;
+    private static int PlotH => CH - PT - PB;
+
+    // ── Single-series bar chart ───────────────────────────────────────────────
+    private static RenderFragment BarChart(
+        string id,
+        List<(string Month, int Year, double Val)> data,
+        string color) => b =>
     {
-        if (data == null || data.Count == 0) return;
-        const double left = 28, top = 6, right = 194, bottom = 88;
-        double chartW = right - left, chartH = bottom - top;
+        if (data == null || data.Count == 0) { RenderEmpty(b); return; }
+
         double max = data.Max(d => d.Val);
+        double topVal = NiceTop(max);
+        double step = NiceStep(max, 5);
         int n = data.Count;
-        double barW = Math.Min(30, (chartW - 4 * (n + 1)) / Math.Max(n, 1));
-        double gap  = (chartW - barW * n) / (n + 1);
 
-        SvgLine(b, 0, left, top, left, bottom);
-        SvgLine(b, 1, left, bottom, right, bottom);
+        // bar geometry
+        double slotW = (double)PlotW / n;
+        double barW = Math.Max(8, Math.Min(52, slotW * 0.55));
 
-        for (int yi = 0; yi <= 2; yi++)
-        {
-            double yv = max * yi / 2.0;
-            double yp = bottom - (max > 0 ? (yv / max) * chartH : 0);
-            SvgText(b, 20 + yi, FormatLargeNum(yv), left - 2, yp + 2, "end", "#8899bb", "6.5");
-        }
+        b.OpenElement(0, "svg");
+        b.AddAttribute(1, "viewBox", $"0 0 {CW} {CH}");
+        b.AddAttribute(2, "style", "width:100%;height:200px;display:block;");
+        b.AddAttribute(3, "xmlns", "http://www.w3.org/2000/svg");
 
+        // gradient def
+        RenderGradDef(b, $"g{id}", color);
+
+        // Y grid + labels
+        RenderYAxis(b, step, topVal);
+
+        // Bars
         for (int i = 0; i < n; i++)
         {
-            double v    = data[i].Val;
-            double barH = max > 0 ? (v / max) * chartH : 2;
-            double x    = left + gap + i * (barW + gap);
-            double y    = bottom - Math.Max(2, barH);
+            double v = data[i].Val;
+            double bH = topVal > 0 ? Math.Max(2, v / topVal * PlotH) : 2;
+            double bX = PL + slotW * i + (slotW - barW) / 2;
+            double bY = PT + PlotH - bH;
 
-            b.OpenElement(100 + i, "rect");
-            b.AddAttribute(0, "x",      x.ToString("F1"));
-            b.AddAttribute(0, "y",      y.ToString("F1"));
-            b.AddAttribute(0, "width",  barW.ToString("F1"));
-            b.AddAttribute(0, "height", Math.Max(2, barH).ToString("F1"));
-            b.AddAttribute(0, "rx",     "2");
-            b.AddAttribute(0, "fill",   color);
+            // bar rect
+            b.OpenElement(0, "rect");
+            b.AddAttribute(0, "x", Fmt(bX));
+            b.AddAttribute(0, "y", Fmt(bY));
+            b.AddAttribute(0, "width", Fmt(barW));
+            b.AddAttribute(0, "height", Fmt(bH));
+            b.AddAttribute(0, "rx", "3");
+            b.AddAttribute(0, "fill", $"url(#g{id})");
             b.CloseElement();
 
-            SvgText(b, 200 + i, FormatLargeNum(v),   x + barW / 2, y - 2,      "middle", "#c8d8f0", "6");
-            SvgText(b, 300 + i, data[i].Month,        x + barW / 2, bottom + 9, "middle", "#7090b0", "6");
+            // value label above bar
+            b.OpenElement(0, "text");
+            b.AddAttribute(0, "x", Fmt(bX + barW / 2));
+            b.AddAttribute(0, "y", Fmt(bY - 5));
+            b.AddAttribute(0, "text-anchor", "middle");
+            b.AddAttribute(0, "fill", "#c8daf0");
+            b.AddAttribute(0, "font-size", "11");
+            b.AddAttribute(0, "font-weight", "600");
+            b.AddAttribute(0, "font-family", "'Segoe UI',sans-serif");
+            b.AddContent(0, FormatVal(v));
+            b.CloseElement();
+
+            // X axis month label
+            RenderXLabel(b, bX + barW / 2, data[i].Month, data[i].Year,
+                         i == 0 || data[i].Year != data[i - 1].Year);
         }
+
+        // baseline
+        RenderBaseline(b);
+
+        b.CloseElement(); // svg
     };
 
-    // ── Grouped bar chart — multiple series per month (Exchange Other Details) ─
-    private RenderFragment MonthlyGroupedBarChart(
-        List<string> months,
+    // ── Grouped bar chart ─────────────────────────────────────────────────────
+    private static RenderFragment GroupedBarChart(
+        string id,
+        List<(string Month, int Year)> labels,
         List<(string Label, Func<DashRow, double> Get, string Color)> series,
         List<DashRow> rows) => b =>
     {
-        if (rows == null || rows.Count == 0 || series.Count == 0) return;
-        const double left = 28, top = 6, right = 194, bottom = 88;
-        double chartW = right - left, chartH = bottom - top;
-        int n = rows.Count, s = series.Count;
-        double groupW  = chartW / Math.Max(n, 1);
-        double barW    = Math.Min(14, (groupW - 4) / s);
-        double max     = rows.SelectMany(r => series.Select(sv => sv.Get(r))).DefaultIfEmpty(1).Max();
+        if (rows == null || rows.Count == 0) { RenderEmpty(b); return; }
 
-        SvgLine(b, 0, left, top, left, bottom);
-        SvgLine(b, 1, left, bottom, right, bottom);
+        int n = rows.Count;
+        int s = series.Count;
+        double max = rows.SelectMany(r => series.Select(sv => sv.Get(r))).DefaultIfEmpty(1).Max();
+        double topVal = NiceTop(max);
+        double step = NiceStep(max, 5);
 
-        for (int yi = 0; yi <= 2; yi++)
+        double slotW = (double)PlotW / n;
+        double gap = 3;
+        double barW = Math.Max(5, Math.Min(30, (slotW * 0.7 - gap * (s - 1)) / s));
+        double groupUsed = barW * s + gap * (s - 1);
+
+        b.OpenElement(0, "svg");
+        b.AddAttribute(1, "viewBox", $"0 0 {CW} {CH}");
+        b.AddAttribute(2, "style", "width:100%;height:200px;display:block;");
+        b.AddAttribute(3, "xmlns", "http://www.w3.org/2000/svg");
+
+        // gradient defs per series
+        for (int si = 0; si < s; si++)
+            RenderGradDef(b, $"gg{id}{si}", series[si].Color);
+
+        // legend top-right
+        double legX = CW - PR - (s * 70);
+        for (int si = 0; si < s; si++)
         {
-            double yv = max * yi / 2.0;
-            double yp = bottom - (max > 0 ? (yv / max) * chartH : 0);
-            SvgText(b, 20 + yi, FormatLargeNum(yv), left - 2, yp + 2, "end", "#8899bb", "6.5");
+            b.OpenElement(0, "rect");
+            b.AddAttribute(0, "x", Fmt(legX + si * 70)); b.AddAttribute(0, "y", "6");
+            b.AddAttribute(0, "width", "10"); b.AddAttribute(0, "height", "10");
+            b.AddAttribute(0, "rx", "2"); b.AddAttribute(0, "fill", series[si].Color);
+            b.CloseElement();
+            b.OpenElement(0, "text");
+            b.AddAttribute(0, "x", Fmt(legX + si * 70 + 14)); b.AddAttribute(0, "y", "15");
+            b.AddAttribute(0, "fill", "#8ab0d0"); b.AddAttribute(0, "font-size", "10");
+            b.AddAttribute(0, "font-family", "'Segoe UI',sans-serif");
+            b.AddContent(0, series[si].Label);
+            b.CloseElement();
         }
+
+        RenderYAxis(b, step, topVal);
 
         for (int i = 0; i < n; i++)
         {
-            double groupX = left + i * groupW + (groupW - barW * s - 2 * (s - 1)) / 2;
-            double midX   = left + i * groupW + groupW / 2;
+            double gX = PL + slotW * i + (slotW - groupUsed) / 2;
+
             for (int si = 0; si < s; si++)
             {
-                double v    = series[si].Get(rows[i]);
-                double barH = max > 0 ? (v / max) * chartH : 2;
-                double x    = groupX + si * (barW + 2);
-                double y    = bottom - Math.Max(2, barH);
+                double v = series[si].Get(rows[i]);
+                double bH = topVal > 0 ? Math.Max(2, v / topVal * PlotH) : 2;
+                double bX = gX + si * (barW + gap);
+                double bY = PT + PlotH - bH;
 
-                b.OpenElement(100 + i * 10 + si, "rect");
-                b.AddAttribute(0, "x",      x.ToString("F1"));
-                b.AddAttribute(0, "y",      y.ToString("F1"));
-                b.AddAttribute(0, "width",  barW.ToString("F1"));
-                b.AddAttribute(0, "height", Math.Max(2, barH).ToString("F1"));
-                b.AddAttribute(0, "rx",     "1.5");
-                b.AddAttribute(0, "fill",   series[si].Color);
+                b.OpenElement(0, "rect");
+                b.AddAttribute(0, "x", Fmt(bX));
+                b.AddAttribute(0, "y", Fmt(bY));
+                b.AddAttribute(0, "width", Fmt(barW));
+                b.AddAttribute(0, "height", Fmt(bH));
+                b.AddAttribute(0, "rx", "2");
+                b.AddAttribute(0, "fill", $"url(#gg{id}{si})");
                 b.CloseElement();
-
-                SvgText(b, 200 + i * 10 + si, FormatLargeNum(v), x + barW / 2, y - 2, "middle", "#c8d8f0", "5.5");
             }
-            SvgText(b, 300 + i, months[i], midX, bottom + 9, "middle", "#7090b0", "6");
+
+            RenderXLabel(b, gX + groupUsed / 2, labels[i].Month, labels[i].Year,
+                         i == 0 || labels[i].Year != labels[i - 1].Year);
         }
+
+        RenderBaseline(b);
+        b.CloseElement();
     };
 
-    private static void SvgLine(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder b,
-        int key, double x1, double y1, double x2, double y2)
+    // ── Shared SVG helpers ────────────────────────────────────────────────────
+
+    private static void RenderGradDef(
+        Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder b,
+        string gid, string color)
     {
-        b.OpenElement(key, "line");
-        b.AddAttribute(0, "x1", x1); b.AddAttribute(0, "y1", y1);
-        b.AddAttribute(0, "x2", x2); b.AddAttribute(0, "y2", y2);
-        b.AddAttribute(0, "stroke", "#2a2a44"); b.AddAttribute(0, "stroke-width", "0.7");
+        // top color = color slightly lighter, bottom = color itself (solid, no transparency)
+        string top = LightenHex(color, 50);
+        b.OpenElement(0, "defs");
+        b.OpenElement(0, "linearGradient");
+        b.AddAttribute(0, "id", gid);
+        b.AddAttribute(0, "x1", "0"); b.AddAttribute(0, "y1", "0");
+        b.AddAttribute(0, "x2", "0"); b.AddAttribute(0, "y2", "1");
+        b.OpenElement(0, "stop");
+        b.AddAttribute(0, "offset", "0%");
+        b.AddAttribute(0, "stop-color", top);
+        b.AddAttribute(0, "stop-opacity", "1");
+        b.CloseElement();
+        b.OpenElement(0, "stop");
+        b.AddAttribute(0, "offset", "100%");
+        b.AddAttribute(0, "stop-color", color);
+        b.AddAttribute(0, "stop-opacity", "1");
+        b.CloseElement();
+        b.CloseElement(); // linearGradient
+        b.CloseElement(); // defs
+    }
+
+    private static void RenderYAxis(
+        Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder b,
+        double step, double topVal)
+    {
+        var ticks = new List<double>();
+        for (double t = 0; t <= topVal + step * 0.01; t += step) ticks.Add(t);
+
+        foreach (var t in ticks)
+        {
+            double yp = PT + PlotH - (topVal > 0 ? t / topVal * PlotH : 0);
+
+            b.OpenElement(0, "line");
+            b.AddAttribute(0, "x1", PL.ToString()); b.AddAttribute(0, "y1", Fmt(yp));
+            b.AddAttribute(0, "x2", (CW - PR).ToString()); b.AddAttribute(0, "y2", Fmt(yp));
+            b.AddAttribute(0, "stroke", t == 0 ? "#2a3a55" : "#1c2538");
+            b.AddAttribute(0, "stroke-width", t == 0 ? "1.2" : "0.7");
+            b.AddAttribute(0, "stroke-dasharray", t == 0 ? "" : "4 3");
+            b.CloseElement();
+
+            b.OpenElement(0, "text");
+            b.AddAttribute(0, "x", (PL - 6).ToString());
+            b.AddAttribute(0, "y", Fmt(yp + 4));
+            b.AddAttribute(0, "text-anchor", "end");
+            b.AddAttribute(0, "fill", "#6a8aaa");
+            b.AddAttribute(0, "font-size", "10");
+            b.AddAttribute(0, "font-family", "'Segoe UI',ui-monospace,monospace");
+            b.AddContent(0, FormatVal(t));
+            b.CloseElement();
+        }
+    }
+
+    private static void RenderBaseline(
+        Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder b)
+    {
+        b.OpenElement(0, "line");
+        b.AddAttribute(0, "x1", PL.ToString()); b.AddAttribute(0, "y1", (PT + PlotH).ToString());
+        b.AddAttribute(0, "x2", (CW - PR).ToString()); b.AddAttribute(0, "y2", (PT + PlotH).ToString());
+        b.AddAttribute(0, "stroke", "#2a3a55"); b.AddAttribute(0, "stroke-width", "1.5");
         b.CloseElement();
     }
 
-    private static void SvgText(Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder b,
-        int key, string content, double x, double y, string anchor, string fill, string size)
+    private static void RenderXLabel(
+        Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder b,
+        double cx, string month, int year, bool showYear)
     {
-        b.OpenElement(key, "text");
-        b.AddAttribute(0, "x", x.ToString("F1")); b.AddAttribute(0, "y", y.ToString("F1"));
-        b.AddAttribute(0, "fill", fill); b.AddAttribute(0, "font-size", size);
-        b.AddAttribute(0, "text-anchor", anchor);
-        b.AddContent(0, content);
+        int baseLine = PT + PlotH;
+
+        // month abbreviation
+        b.OpenElement(0, "text");
+        b.AddAttribute(0, "x", Fmt(cx));
+        b.AddAttribute(0, "y", (baseLine + 16).ToString());
+        b.AddAttribute(0, "text-anchor", "middle");
+        b.AddAttribute(0, "fill", "#8ab0cc");
+        b.AddAttribute(0, "font-size", "11");
+        b.AddAttribute(0, "font-family", "'Segoe UI',sans-serif");
+        b.AddContent(0, month.Length > 3 ? month[..3] : month);
+        b.CloseElement();
+
+        // year (only when it changes)
+        if (showYear)
+        {
+            b.OpenElement(0, "text");
+            b.AddAttribute(0, "x", Fmt(cx));
+            b.AddAttribute(0, "y", (baseLine + 30).ToString());
+            b.AddAttribute(0, "text-anchor", "middle");
+            b.AddAttribute(0, "fill", "#4a6a88");
+            b.AddAttribute(0, "font-size", "10");
+            b.AddAttribute(0, "font-weight", "600");
+            b.AddAttribute(0, "font-family", "'Segoe UI',sans-serif");
+            b.AddContent(0, year.ToString());
+            b.CloseElement();
+        }
+    }
+
+    private static void RenderEmpty(
+        Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder b)
+    {
+        b.OpenElement(0, "div");
+        b.AddAttribute(1, "class", "ch-empty");
+        b.AddContent(2, "Nessun dato");
         b.CloseElement();
     }
 
-    private static string FormatLargeNum(double v)
+    // ── Maths ─────────────────────────────────────────────────────────────────
+    private static double NiceTop(double max)
     {
-        if (v >= 1_000_000_000) return $"{v / 1_000_000_000:F1}B";
-        if (v >= 1_000_000)     return $"{v / 1_000_000:F2}Mln";
-        if (v >= 1_000)         return $"{v / 1_000:F1}K";
-        return v.ToString("F0");
+        if (max <= 0) return 1;
+        double step = NiceStep(max, 5);
+        return step * Math.Ceiling(max / step);
+    }
+
+    private static double NiceStep(double max, int ticks)
+    {
+        if (max <= 0) return 1;
+        double raw = max / ticks;
+        double mag = Math.Pow(10, Math.Floor(Math.Log10(raw)));
+        foreach (var n in new[] { 1.0, 2, 2.5, 5, 10 })
+            if (n * mag >= raw) return n * mag;
+        return 10 * mag;
+    }
+
+    private static string FormatVal(double v)
+    {
+        if (v >= 1_000_000_000) return $"{v / 1_000_000_000:F2}Mld";
+        if (v >= 1_000_000) return $"{v / 1_000_000:F2}Mln";
+        if (v >= 1_000) return $"{v / 1_000:F1}K";
+        return v == 0 ? "0" : v.ToString("F1");
+    }
+
+    private static string Fmt(double v) => v.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string LightenHex(string hex, int amt)
+    {
+        try
+        {
+            hex = hex.TrimStart('#');
+            int r = Math.Min(255, Convert.ToInt32(hex[..2], 16) + amt);
+            int g = Math.Min(255, Convert.ToInt32(hex[2..4], 16) + amt);
+            int bl = Math.Min(255, Convert.ToInt32(hex[4..6], 16) + amt);
+            return $"#{r:X2}{g:X2}{bl:X2}";
+        }
+        catch { return "#" + hex; }
     }
 
     // ── Models ────────────────────────────────────────────────────────────────
     private class DashRow
     {
         public string MonthLabel { get; set; } = "";
-        public int    YearNum    { get; set; }
-        public int    MonthNum   { get; set; }
-        public long   Exchange_Total_Primary_Item_Count               { get; set; }
-        public long   Exchange_Total_Archive_Item_Count               { get; set; }
-        public double Exchange_Total_Primary_Total_Size_GB            { get; set; }
-        public double Exchange_Total_Archive_Total_Size_GB            { get; set; }
-        public long   Exchange_Total_Primary_SystemMessage_Count      { get; set; }
-        public long   Exchange_Total_Primary_SystemMessage_Size_Bytes { get; set; }
-        public long   Exchange_Total_Primary_Recoverable_Count        { get; set; }
-        public long   Exchange_Total_Primary_Recoverable_Size_Bytes   { get; set; }
-        public long   Exchange_Total_Archive_SystemMessage_Count      { get; set; }
-        public long   Exchange_Total_Archive_SystemMessage_Size_Bytes { get; set; }
-        public long   Exchange_Total_Archive_Recoverable_Count        { get; set; }
-        public long   Exchange_Total_Archive_Recoverable_Size_Bytes   { get; set; }
-        public long   Exchange_Total_Archive_Total_Size_Bytes         { get; set; }
-        public long   OneDrive_Total_File_Count                       { get; set; }
-        public double OneDrive_Total_StorageUsedGB                    { get; set; }
-        public long   SharePoint_Total_File_Count                     { get; set; }
-        public double SharePoint_Total_StorageUsedGB                  { get; set; }
-        public int    Users_Total                                     { get; set; }
+        public int YearNum { get; set; }
+        public int MonthNum { get; set; }
+        public long Exchange_Item_Count { get; set; }
+        public long Exchange_Deleted_Item_Count { get; set; }
+        public double Exchange_StorageUsedGB { get; set; }
+        public double Exchange_DeletedItemSizeGB { get; set; }
+        public long OneDrive_Total_File_Count { get; set; }
+        public double OneDrive_Total_StorageUsedGB { get; set; }
+        public long SharePoint_Total_File_Count { get; set; }
+        public double SharePoint_Total_StorageUsedGB { get; set; }
+        public int Users_Total { get; set; }
     }
 
     private class CountryRow
     {
-        public string CountryName  { get; set; } = "";
-        public int    CountryCount { get; set; }
+        public string CountryName { get; set; } = "";
+        public int CountryCount { get; set; }
     }
 }
 
 <style>
-    /* ── Department filter ─── */
+    /* ── Layout ──────────────────────────────────────────────────────────────── */
+    .dashboard-page { padding:1.5rem 2rem; }
+    .dash-header    { display:flex; align-items:flex-start; justify-content:space-between;
+                      flex-wrap:wrap; gap:1rem; margin-bottom:1rem; }
+    .dash-title     { font-size:1.45rem; font-weight:700; color:#c8daf0; margin:0; }
+    .dash-sub       { font-size:.78rem; color:#4a6a88; }
+
+    /* dept filter */
     .dept-filter  { display:flex; align-items:center; gap:.6rem; margin-left:auto; }
     .dept-label   { font-size:.78rem; color:#7090c0; font-weight:600; }
     .dept-select  { background:#151528; border:1px solid #2a2a44; color:#c8d0e7;
                     border-radius:6px; padding:.4rem .8rem; font-size:.82rem;
                     outline:none; cursor:pointer; min-width:180px; }
-    .dept-select:focus { border-color:#4a90d9; }
+    .dept-select:focus { border-color:#1B8FFF; }
 
-    /* ── Header ─── */
-    .dash-header  { display:flex; align-items:flex-start; justify-content:space-between;
-                    flex-wrap:wrap; gap:1rem; margin-bottom:1rem; }
-
-    /* ── Section bands ─── */
+    /* section bands */
     .section-band {
         display:flex; align-items:center; gap:.5rem;
-        background:#12121e; border:1px solid #2a2a44; border-bottom:none;
-        border-radius:6px 6px 0 0; padding:.4rem .9rem;
+        background:#0d1020; border:1px solid #1c2038; border-bottom:none;
+        border-radius:6px 6px 0 0; padding:.4rem 1rem;
     }
-    .section-band-dark { background:#0d0d1a; }
-    .section-band-blue { background:#09182a; }
-    .section-band-teal { background:#071815; }
-    .section-band-title { font-size:.8rem; font-weight:700; color:#c8d8f0; letter-spacing:.04em; }
+    .section-band-dark { background:#090b14; }
+    .section-band-blue { background:#070d1a; }
+    .section-band-teal { background:#060f12; }
+    .section-band-title { font-size:.75rem; font-weight:700; color:#8aaccc;
+                          letter-spacing:.06em; text-transform:uppercase; }
     .section-badge-sp {
-        width:16px; height:16px; border-radius:3px; background:#036c70;
-        color:#fff; font-size:.65rem; font-weight:700;
+        width:15px; height:15px; border-radius:3px; background:#00a090;
+        color:#fff; font-size:.6rem; font-weight:700;
         display:inline-flex; align-items:center; justify-content:center;
     }
     .section-badge-ex {
-        width:16px; height:16px; border-radius:3px; background:#0078d4;
-        color:#fff; font-size:.65rem; font-weight:700;
+        width:15px; height:15px; border-radius:3px; background:#0066cc;
+        color:#fff; font-size:.6rem; font-weight:700;
         display:inline-flex; align-items:center; justify-content:center;
     }
 
-    /* ── Cards ─── */
-    .cards-row   { display:flex; gap:.6rem; flex-wrap:wrap; margin-bottom:.6rem; }
+    /* cards */
+    .cards-row      { display:flex; gap:.5rem; flex-wrap:wrap; margin-bottom:.5rem; }
     .cards-row.no-mb { margin-bottom:0; }
-    .mb-sm       { margin-bottom:.6rem; }
+    .mb-sm          { margin-bottom:.5rem; }
     .dcard {
-        background:#12121e; border:1px solid #222236; border-top:none;
-        border-radius:0 0 6px 6px; padding:.55rem .7rem; flex:1; min-width:0;
+        background:#0a0c1c; border:1px solid #161830; border-top:none;
+        border-radius:0 0 8px 8px; padding:.6rem .7rem .4rem;
+        flex:1; min-width:0;
     }
-    .dcard-map   { flex:2.2; }
-    .dcard-title { font-size:.7rem; font-weight:600; color:#8899bb; margin-bottom:.3rem;
-                   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .dchart      { width:100%; height:auto; display:block; overflow:visible; }
+    .dcard-map  { flex:2.2; }
+    .dcard-title {
+        font-size:.68rem; font-weight:700; color:#4a6488;
+        text-transform:uppercase; letter-spacing:.08em; margin-bottom:.4rem;
+    }
 
-    /* ── Country table ─── */
-    .country-table-wrap { overflow-y:auto; max-height:140px; }
-    .ctable      { width:100%; border-collapse:collapse; font-size:.72rem; }
-    .ctable th   { color:#556680; font-weight:600; padding:2px 4px; border-bottom:1px solid #2a2a44; }
-    .ctable td   { color:#a0b4cc; padding:2px 4px; }
-    .ct-num      { text-align:right; color:#6ad0a0; font-weight:600; }
-
-    /* ── Two-col layout (OneDrive | SharePoint) ─── */
-    .two-sections-row { display:flex; gap:.6rem; margin-bottom:.6rem; }
+    /* two-column layout */
+    .two-sections-row { display:flex; gap:.5rem; margin-bottom:.5rem; }
     .section-col      { flex:1; min-width:0; }
 
-    /* ── Exchange ─── */
-    .exchange-row     { display:flex; gap:.6rem; }
-    .exchange-col     { flex:1; min-width:0; }
-    .exchange-sub-header {
-        font-size:.74rem; font-weight:700; color:#a0b8d8;
-        background:#181828; border:1px solid #2a2a44; border-top:none;
-        padding:.28rem .8rem; margin-bottom:.4rem;
-    }
+    /* country table */
+    .country-table-wrap { overflow-y:auto; max-height:160px; }
+    .ctable     { width:100%; border-collapse:collapse; font-size:.72rem; }
+    .ctable th  { color:#3a5070; font-weight:600; padding:3px 6px; border-bottom:1px solid #1a2030; }
+    .ctable td  { color:#7090aa; padding:3px 6px; }
+    .ctable tr:hover td { color:#a0c0d8; background:#0f1120; }
+    .ct-num     { text-align:right; color:#1B8FFF; font-weight:700; font-family:monospace; }
+
+    /* empty chart */
+    .ch-empty { height:120px; display:flex; align-items:center; justify-content:center;
+                color:#1e2840; font-size:.8rem; }
+
+    /* empty/error page */
+    .dash-empty { display:flex; flex-direction:column; align-items:center;
+                  justify-content:center; min-height:55vh; gap:1rem; text-align:center; }
+    .dash-empty-title { font-size:1.1rem; font-weight:600; color:#3a5070; margin:0; }
+    .dash-empty-msg   { color:#3a5070; font-size:.88rem; }
+    .dash-empty-msg a { color:#1B8FFF; }
+    .dash-error-page  { display:flex; flex-direction:column; align-items:center;
+                        justify-content:center; min-height:55vh; gap:1rem; }
+    .dash-error-icon  { font-size:3rem; color:#cc4444; }
+    .dash-error-title { color:#cc4444; font-size:1.2rem; font-weight:700; }
+    .dash-error-msg   { color:#886060; font-size:.88rem; text-align:center; }
+    .dash-error-msg a { color:#1B8FFF; }
 </style>

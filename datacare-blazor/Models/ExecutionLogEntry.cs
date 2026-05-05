@@ -2,13 +2,14 @@ namespace DataCareLite.Models;
 
 public class ExecutionLogEntry
 {
-    public DateTime  ExecutionDate   { get; set; }
-    public string    ReportName      { get; set; } = string.Empty;
-    public string    Status          { get; set; } = string.Empty;
-    public int       RowsRetrieved   { get; set; }
-    public int       RowsInserted    { get; set; }
-    public int       DurationSeconds { get; set; }
-    public string?   ErrorMessage    { get; set; }
+    public Guid? ExecutionId { get; set; }
+    public DateTime ExecutionDate { get; set; }
+    public string ReportName { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public int RowsRetrieved { get; set; }
+    public int RowsInserted { get; set; }
+    public int DurationSeconds { get; set; }
+    public string? ErrorMessage { get; set; }
     public bool IsSuccess => Status == "SUCCESS";
 }
 
@@ -22,9 +23,9 @@ public record TerminalLine(string Message, TerminalLevel Level, DateTime Timesta
     public string CssClass => Level switch
     {
         TerminalLevel.Success => "t-g",
-        TerminalLevel.Step    => "t-y",
-        TerminalLevel.Error   => "t-r",
+        TerminalLevel.Step => "t-y",
+        TerminalLevel.Error => "t-r",
         TerminalLevel.Warning => "t-w",
-        _                     => "t-d"
+        _ => "t-d"
     };
 }
