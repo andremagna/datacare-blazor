@@ -1,6 +1,6 @@
-using DataCareLite.Models;
+using DataCare.Models;
 
-namespace DataCareLite.Services;
+namespace DataCare.Services;
 
 public class EtlStateService
 {
@@ -19,6 +19,20 @@ public class EtlStateService
     public List<ExecutionLogEntry> HistoryRows { get; } = new();
 
     public event Action? OnChanged;
+
+    /// <summary>
+    /// Stores the connection string without starting an ETL run.
+    /// Called as soon as the user types SqlServer/Database on the Home page,
+    /// so that Environment Configuration and Logs can connect independently.
+    /// </summary>
+    public void SetConnectionString(string connectionString)
+    {
+        if (!string.IsNullOrWhiteSpace(connectionString))
+        {
+            LastConnectionString = connectionString;
+            Notify();
+        }
+    }
 
     public void StartRun(string connectionString)
     {
@@ -67,6 +81,20 @@ public class EtlStateService
         StatusText = "Cancelled";
         StatusCss = "st err";
         ProgressLabel = "Cancelled";
+        Notify();
+    }
+
+    public void Reset()
+    {
+        IsRunning = false;
+        HasRun = false;
+        LastRunSuccess = false;
+        Progress = 0;
+        ProgressLabel = "Idle";
+        StatusText = string.Empty;
+        StatusCss = string.Empty;
+        TerminalLines.Clear();
+        HistoryRows.Clear();
         Notify();
     }
 

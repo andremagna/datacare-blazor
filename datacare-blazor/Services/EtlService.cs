@@ -1,9 +1,9 @@
 using System.Net.Http.Headers;
 using System.Text.Json;
-using DataCareLite.Models;
+using DataCare.Models;
 using Microsoft.Data.SqlClient;
 
-namespace DataCareLite.Services;
+namespace DataCare.Services;
 
 public class EtlService
 {
@@ -23,7 +23,8 @@ public class EtlService
         try
         {
             Log("Verifying SQL Server connection...");
-            await using (var c = new SqlConnection(cfg.TargetConnectionString))
+            // Connect to master — target DB may not exist yet
+            await using (var c = new SqlConnection(cfg.MasterConnectionString))
                 await c.OpenAsync(ct);
             Log("SQL Server connection successful", TerminalLevel.Success);
             _state.SetProgress(4, "SQL connected");
@@ -425,8 +426,12 @@ public class EtlService
     private async Task InitDatabaseAsync(RunConfig cfg, CancellationToken ct)
     {
         Log($"Initializing database [{cfg.SqlDatabase}]...");
+        // Use IF NOT EXISTS — avoids the 'file already exists' error when the DB
+        // was previously detached/dropped but the .mdf file is still on disk.
         await ExecAsync(cfg.MasterConnectionString,
             $"IF DB_ID(N'{cfg.SqlDatabase}') IS NULL CREATE DATABASE [{cfg.SqlDatabase}];", ct);
+        // If the DB already exists but was just created above, connect to it now.
+        // Either way the target connection string is now valid.
         foreach (var (name, ddl) in TableDdl.All)
         {
             await ExecAsync(cfg.TargetConnectionString, ddl, ct);
@@ -459,14 +464,30 @@ public class EtlService
         int duration, string? error, CancellationToken ct)
     {
         string safeErr = error != null ? $"'{error.Replace("'", "''")}'" : "NULL";
+
+        // Formatta durata come hh:mm:ss
+        var ts = TimeSpan.FromSeconds(duration);
+        string durStr = $"{(int)ts.TotalHours:D2}:{ts.Minutes:D2}:{ts.Seconds:D2}";
+
+        // Calcola TableSizeMB per la singola tabella (NULL per righe aggregate)
+        bool isAggregate = report is "TOTAL" || report.StartsWith("CANCEL") || report.StartsWith("FAIL");
+        string sizeSql = isAggregate
+            ? "NULL"
+            : $@"(SELECT CAST(SUM(a.data_pages) * 8.0 / 1024 AS FLOAT)
+                  FROM sys.tables t
+                  JOIN sys.indexes i ON t.object_id = i.object_id
+                  JOIN sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id
+                  JOIN sys.allocation_units a ON p.partition_id = a.container_id
+                  WHERE t.name = '{report}' AND a.type = 1)";
+
         await ExecAsync(cfg.TargetConnectionString, $@"
             INSERT INTO dbo.ExecutionLog
             (ExecutionId,ExecutionDate,ReportName,Status,
-             RowsRetrieved,RowsInserted,DurationSeconds,
-             ErrorMessage,MachineName,AppVersion)
+             RowsRetrieved,RowsInserted,DurationTimeJob,
+             ErrorMessage,MachineName,PowerShellVersion,TableSizeMB)
             VALUES('{execId}',SYSDATETIME(),'{report}','{status}',
-                   {retrieved},{inserted},{duration},
-                   {safeErr},'{Environment.MachineName}','1.0.0')", ct);
+                   {retrieved},{inserted},'{durStr}',
+                   {safeErr},'{Environment.MachineName}','C#-1.0',{sizeSql})", ct);
     }
 
     private async Task<List<ExecutionLogEntry>> LoadHistoryAsync(RunConfig cfg, CancellationToken ct)
@@ -478,7 +499,7 @@ public class EtlService
             await conn.OpenAsync(ct);
             await using var cmd = new SqlCommand(@"
                 SELECT ExecutionDate, ReportName, Status,
-                       RowsRetrieved, RowsInserted, DurationSeconds, ErrorMessage
+                       RowsRetrieved, RowsInserted, DurationTimeJob, ErrorMessage
                 FROM dbo.ExecutionLog
                 WHERE ExecutionId = (
                     SELECT TOP 1 ExecutionId
@@ -495,7 +516,7 @@ public class EtlService
                     Status = rdr.GetString(2),
                     RowsRetrieved = rdr.IsDBNull(3) ? 0 : rdr.GetInt32(3),
                     RowsInserted = rdr.IsDBNull(4) ? 0 : rdr.GetInt32(4),
-                    DurationSeconds = rdr.IsDBNull(5) ? 0 : rdr.GetInt32(5),
+                    DurationTimeJob = rdr.GetString(5),
                     ErrorMessage = rdr.IsDBNull(6) ? null : rdr.GetString(6),
                 });
         }

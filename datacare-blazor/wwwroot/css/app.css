@@ -1,7 +1,6 @@
-*, *::before, *::after {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
+box-sizing: border-box;
+margin: 0;
+padding: 0;
 }
 
 html, body {
@@ -114,17 +113,17 @@ html, body {
     margin: 8px;
     height: 32px;
     background: #181830;
-    border: 1px solid #252545;
+    border: 1px solid #2a2a44;
     border-radius: 8px;
     cursor: pointer;
-    color: #556;
+    color: #778;
     transition: background .15s, color .15s;
     flex-shrink: 0;
 }
 
     .sb-collapse-btn:hover {
-        background: #202040;
-        color: #aab;
+        background: #181830;
+        color: #dcdce8;
     }
 /* ─── MAIN AREA ──────────────────────────────── */
 .main-area {
@@ -192,6 +191,13 @@ html, body {
     margin-bottom: 14px;
 }
 
+.g1 {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 11px;
+    margin-bottom: 14px;
+}
+
 .fl {
     font-size: 11px;
     color: #dcdce8;
@@ -204,7 +210,7 @@ html, body {
     background: #0c0c18;
     border: 0.5px solid #2a2a44;
     border-radius: 6px;
-    color: #bbb;
+    color: #ccc;
     font-size: 12px;
     padding: 7px 10px;
     outline: none;
@@ -230,7 +236,7 @@ html, body {
     background: #0c0c18;
     border: 0.5px solid #2a2a44;
     border-radius: 6px;
-    color: #bbb;
+    color: #ccc;
     font-size: 12px;
     padding: 7px 10px;
     outline: none;
@@ -245,39 +251,43 @@ html, body {
     max-height: 280px;
     overflow-y: auto;
     padding: 10px 14px;
-    font-family: 'Cascadia Code', 'Consolas', monospace;
+    font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
     font-size: 11.5px;
     line-height: 1.65;
 }
 
-.t-d {
-    color: #333;
+/* tutte le righe: stesso font monospace */
+.t-d, .t-info, .t-step, .t-warn, .t-ok, .t-err, .t-ts {
+    font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+    font-size: 11.5px;
 }
 
-.t-ts {
-    color: #2a3a5a;
-    font-size: 10.5px;
+.t-d {
+    color: #8a9ab8;
 }
 
 .t-info {
-    color: #8899bb;
-}
-
-.t-ok {
-    color: #3a8a5a;
-}
-
-.t-warn {
-    color: #8a7a3a;
-}
-
-.t-err {
-    color: #8a3a3a;
+    color: #8a9ab8;
 }
 
 .t-step {
-    color: #4a6a9a;
-    font-weight: 600;
+    color: #7ab8e0;
+}
+
+.t-warn {
+    color: #f59e0b;
+}
+
+.t-ok {
+    color: #22c55e;
+}
+
+.t-err {
+    color: #f87171;
+}
+
+.t-ts {
+    color: #556a88;
 }
 
 .prog-row {
@@ -686,6 +696,7 @@ html, body {
     max-width: 400px;
     line-height: 1.65;
 }
+
 /* ─── RESPONSIVE ─────────────────────────────── */
 @media (max-width: 1100px) {
     .cards-5 {

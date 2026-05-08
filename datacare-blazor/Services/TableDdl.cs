@@ -1,4 +1,4 @@
-namespace DataCareLite.Services;
+namespace DataCare.Services;
 
 public static class TableDdl
 {
@@ -7,16 +7,29 @@ public static class TableDdl
         ["ExecutionLog"] = @"
             IF OBJECT_ID('dbo.ExecutionLog','U') IS NULL
             CREATE TABLE dbo.ExecutionLog (
-                ExecutionId      UNIQUEIDENTIFIER,
-                ExecutionDate    DATETIME2,
-                ReportName       NVARCHAR(100),
-                Status           NVARCHAR(50),
-                RowsRetrieved    INT,
-                RowsInserted     INT,
-                DurationSeconds  INT,
-                ErrorMessage     NVARCHAR(MAX),
-                MachineName      NVARCHAR(255),
-                AppVersion       NVARCHAR(50));",
+                ExecutionId        UNIQUEIDENTIFIER,
+                ExecutionDate      DATETIME2,
+                ReportName         NVARCHAR(100),
+                Status             NVARCHAR(50),
+                RowsRetrieved      INT,
+                RowsInserted       INT,
+                DurationTimeJob    NVARCHAR(255),
+                ErrorMessage       NVARCHAR(MAX),
+                MachineName        NVARCHAR(255),
+                PowerShellVersion  NVARCHAR(50),
+                TableSizeMB        FLOAT);",
+
+        ["EnvironmentConfiguration"] = @"
+            IF OBJECT_ID('dbo.EnvironmentConfiguration','U') IS NULL
+            CREATE TABLE dbo.EnvironmentConfiguration (
+                Id                   INT IDENTITY(1,1) PRIMARY KEY,
+                EnvironmentKey       NVARCHAR(100) NOT NULL,
+                TenantId             NVARCHAR(255) NOT NULL,
+                ClientId             NVARCHAR(255) NOT NULL,
+                CertificateThumbprint NVARCHAR(255) NOT NULL,
+                CreatedAt            DATETIME2 DEFAULT SYSDATETIME(),
+                UpdatedAt            DATETIME2 NULL,
+                CONSTRAINT UQ_EnvironmentKey UNIQUE (EnvironmentKey));",
 
         ["MicrosoftUsers"] = @"
             IF OBJECT_ID('dbo.MicrosoftUsers','U') IS NULL
@@ -194,8 +207,10 @@ public static class TableDdl
             GROUP BY ISNULL(Department, 'Unknown')
         ) u ON e.Department = u.Department;";
 
-    // Dashboard query adapted to the simplified PowerBIDataModelHistory schema.
-    public static string DashboardQuery(string? department) => $@"
+    // Dashboard query — returns one aggregated row per month using the LAST SUCCESSFUL execution.
+    // Joins PowerBIDataModelHistory with ExecutionLog WHERE Status='SUCCESS' AND ReportName='TOTAL'
+    // to ensure only fully successful ETL runs are represented in the dashboard.
+    public static string DashboardQuery(string? department, int? yearMonth = null) => $@"
         WITH LastExecPerMonth AS (
             SELECT
                 YEAR([Date])  AS YearNum,
@@ -223,11 +238,12 @@ public static class TableDdl
             CAST(SUM(h.OneDrive_Total_StorageUsedGB) AS DECIMAL(18,2))          AS OneDrive_Total_StorageUsedGB,
             SUM(h.SharePoint_Total_File_Count)                                  AS SharePoint_Total_File_Count,
             CAST(SUM(h.SharePoint_Total_StorageUsedGB) AS DECIMAL(18,2))        AS SharePoint_Total_StorageUsedGB,
-            MAX(h.Users_Total)                                                  AS Users_Total
+            SUM(CAST(h.Users_Total AS BIGINT))                                  AS Users_Total
         FROM LastExecPerMonth lem
         JOIN dbo.PowerBIDataModelHistory h ON h.ExecutionId = lem.ExecutionId
         WHERE 1=1
         {(string.IsNullOrWhiteSpace(department) ? "" : $"AND h.Department = '{department.Replace("'", "''")}'")}
+        {(yearMonth.HasValue ? $"AND (lem.YearNum * 100 + lem.MonthNum) = {yearMonth.Value}" : "")}
         GROUP BY lem.YearNum, lem.MonthNum, lem.LastDate
         ORDER BY lem.YearNum, lem.MonthNum;";
 
@@ -241,4 +257,49 @@ public static class TableDdl
         SELECT DISTINCT ISNULL(Department,'Unknown') AS Department
         FROM dbo.PowerBIDataModelHistory
         ORDER BY Department;";
+
+    // Distinct months available in PowerBIDataModelHistory, newest first
+    public static string MonthListQuery() => @"
+        SELECT DISTINCT
+            YEAR([Date]) * 100 + MONTH([Date])        AS YearMonth,
+            FORMAT(MAX([Date]), 'MMMM yyyy', 'en-US') AS MonthLabel
+        FROM dbo.PowerBIDataModelHistory
+        GROUP BY YEAR([Date]), MONTH([Date])
+        ORDER BY 1 DESC;";
+
+    // ── EnvironmentConfiguration queries ─────────────────────────────────
+
+    public const string EnvConfigDdl = @"
+        IF OBJECT_ID('dbo.EnvironmentConfiguration','U') IS NULL
+        CREATE TABLE dbo.EnvironmentConfiguration (
+            Id                    INT IDENTITY(1,1) PRIMARY KEY,
+            EnvironmentKey        NVARCHAR(100) NOT NULL,
+            TenantId              NVARCHAR(255) NOT NULL,
+            ClientId              NVARCHAR(255) NOT NULL,
+            CertificateThumbprint NVARCHAR(255) NOT NULL,
+            CreatedAt             DATETIME2 DEFAULT SYSDATETIME(),
+            UpdatedAt             DATETIME2 NULL,
+            CONSTRAINT UQ_EnvironmentKey UNIQUE (EnvironmentKey));";
+
+    public const string EnvConfigSelectAll = @"
+        SELECT Id, EnvironmentKey, TenantId, ClientId, CertificateThumbprint, CreatedAt, UpdatedAt
+        FROM dbo.EnvironmentConfiguration
+        ORDER BY EnvironmentKey;";
+
+    public static string EnvConfigInsert(string key, string tenantId, string clientId, string thumb) =>
+        $"INSERT INTO dbo.EnvironmentConfiguration (EnvironmentKey, TenantId, ClientId, CertificateThumbprint) " +
+        $"VALUES (N'{Esc(key)}', N'{Esc(tenantId)}', N'{Esc(clientId)}', N'{Esc(thumb)}');";
+
+    public static string EnvConfigUpdate(int id, string key, string tenantId, string clientId, string thumb) =>
+        $"UPDATE dbo.EnvironmentConfiguration SET " +
+        $"EnvironmentKey=N'{Esc(key)}', TenantId=N'{Esc(tenantId)}', ClientId=N'{Esc(clientId)}', " +
+        $"CertificateThumbprint=N'{Esc(thumb)}', UpdatedAt=SYSDATETIME() " +
+        $"WHERE Id={id};";
+
+    public static string EnvConfigKeyExists(string key, int? excludeId = null) =>
+        excludeId.HasValue
+            ? $"SELECT COUNT(*) FROM dbo.EnvironmentConfiguration WHERE EnvironmentKey=N'{Esc(key)}' AND Id<>{excludeId.Value};"
+            : $"SELECT COUNT(*) FROM dbo.EnvironmentConfiguration WHERE EnvironmentKey=N'{Esc(key)}';";
+
+    private static string Esc(string s) => s.Replace("'", "''");
 }

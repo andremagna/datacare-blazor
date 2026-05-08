@@ -1,4 +1,4 @@
-namespace DataCareLite.Models;
+namespace DataCare.Models;
 
 public class ExecutionLogEntry
 {
@@ -8,8 +8,12 @@ public class ExecutionLogEntry
     public string Status { get; set; } = string.Empty;
     public int RowsRetrieved { get; set; }
     public int RowsInserted { get; set; }
-    public int DurationSeconds { get; set; }
+    /// <summary>Duration as hh:mm:ss string, matching the PS script's DurationTimeJob column.</summary>
+    public string DurationTimeJob { get; set; } = string.Empty;
+    public float? TableSizeMB { get; set; }
     public string? ErrorMessage { get; set; }
+    public string? MachineName { get; set; }
+    public string? PowerShellVersion { get; set; }
     public bool IsSuccess => Status == "SUCCESS";
 }
 
@@ -28,4 +32,16 @@ public record TerminalLine(string Message, TerminalLevel Level, DateTime Timesta
         TerminalLevel.Warning => "t-w",
         _ => "t-d"
     };
+}
+
+/// <summary>An environment configuration saved in dbo.EnvironmentConfiguration.</summary>
+public class EnvironmentConfig
+{
+    public int Id { get; set; }
+    public string EnvironmentKey { get; set; } = string.Empty;
+    public string TenantId { get; set; } = string.Empty;
+    public string ClientId { get; set; } = string.Empty;
+    public string CertificateThumbprint { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
 }

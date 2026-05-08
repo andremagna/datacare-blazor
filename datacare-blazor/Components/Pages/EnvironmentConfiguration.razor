@@ -1,0 +1,504 @@
+@page "/environment"
+@using DataCare.Models
+@using DataCare.Services
+@using Microsoft.Data.SqlClient
+@inject EtlStateService State
+@inject IJSRuntime JS
+@implements IDisposable
+
+<PageTitle>Environment Configuration — DataCare</PageTitle>
+
+<!-- ── Modal: Add / Edit ─────────────────────────────────────────────── -->
+@if (_showModal)
+{
+    <div class="modal-overlay" @onclick="CloseModal">
+        <div class="modal-box" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <span class="modal-title">@(_editId.HasValue ? "Edit Environment" : "New Environment")</span>
+                <button class="modal-close" @onclick="CloseModal">✕</button>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(_modalError))
+            {
+                <div class="modal-alert">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    @_modalError
+                </div>
+            }
+
+            <div class="modal-field">
+                <label class="mf-label">Environment Key <span class="req">*</span></label>
+                <input class="mf-input @(_submitted && string.IsNullOrWhiteSpace(_form.EnvironmentKey) ? "mf-error" : "")"
+                       @bind="_form.EnvironmentKey" placeholder="e.g. prod-tenant-ferrero" />
+                @if (_submitted && string.IsNullOrWhiteSpace(_form.EnvironmentKey))
+                { <span class="mf-err-msg">Required</span> }
+            </div>
+            <div class="modal-field">
+                <label class="mf-label">Tenant ID <span class="req">*</span></label>
+                <input class="mf-input @(_submitted && string.IsNullOrWhiteSpace(_form.TenantId) ? "mf-error" : "")"
+                       @bind="_form.TenantId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+                @if (_submitted && string.IsNullOrWhiteSpace(_form.TenantId))
+                { <span class="mf-err-msg">Required</span> }
+            </div>
+            <div class="modal-field">
+                <label class="mf-label">Client ID <span class="req">*</span></label>
+                <input class="mf-input @(_submitted && string.IsNullOrWhiteSpace(_form.ClientId) ? "mf-error" : "")"
+                       @bind="_form.ClientId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+                @if (_submitted && string.IsNullOrWhiteSpace(_form.ClientId))
+                { <span class="mf-err-msg">Required</span> }
+            </div>
+            <div class="modal-field">
+                <label class="mf-label">Certificate Thumbprint <span class="req">*</span></label>
+                <input class="mf-input @(_submitted && string.IsNullOrWhiteSpace(_form.CertificateThumbprint) ? "mf-error" : "")"
+                       @bind="_form.CertificateThumbprint" placeholder="40 hex characters" />
+                @if (_submitted && string.IsNullOrWhiteSpace(_form.CertificateThumbprint))
+                { <span class="mf-err-msg">Required</span> }
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn-cancel-modal" @onclick="CloseModal">Cancel</button>
+                <button class="btn-save" @onclick="SaveAsync" disabled="@_saving">
+                    @if (_saving) { <span class="spin">⟳</span> }
+                    @(_editId.HasValue ? "Update" : "Save")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<div class="env-page">
+    <div class="env-header">
+        <div>
+            <h1 class="env-title">Environment Configuration</h1>
+            <span class="env-sub">Manage Azure AD credentials for ETL runs</span>
+        </div>
+        <button class="btn-add" @onclick="OpenAddModal" title="Add new environment"
+                disabled="@string.IsNullOrWhiteSpace(ActiveCs)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New Environment
+        </button>
+    </div>
+
+    <!-- ── SQL connection panel — shown only when no CS is available yet ── -->
+    @if (string.IsNullOrWhiteSpace(State.LastConnectionString))
+    {
+        <div class="sql-panel">
+            <div class="sql-panel-title">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5a9aee" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+                SQL Server connection
+            </div>
+            <div class="sql-panel-row">
+                <div class="sql-field">
+                    <label class="mf-label">Server</label>
+                    <input class="mf-input" @bind="_sqlServer" placeholder="localhost\SQLEXPRESS" />
+                </div>
+                <div class="sql-field">
+                    <label class="mf-label">Database</label>
+                    <input class="mf-input" @bind="_sqlDatabase" placeholder="DataCare-Demo" />
+                </div>
+                <button class="btn-connect" @onclick="ConnectAsync" disabled="@_connecting">
+                    @if (_connecting) { <span class="spin">⟳</span> } else { <span>Connect</span> }
+                </button>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(_connectError))
+            {
+                <div class="sql-error">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    @_connectError
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="cs-badge">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#4caf90" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            Connected: <span class="cs-badge-val">@State.LastConnectionString.Split(';').FirstOrDefault(p => p.TrimStart().StartsWith("Server", StringComparison.OrdinalIgnoreCase))?.Trim()</span>
+        </div>
+    }
+
+    @if (_loading)
+    {
+        <div class="env-loading">Loading configurations…</div>
+    }
+    else if (string.IsNullOrWhiteSpace(ActiveCs))
+    {
+        <div class="env-empty">
+            <p style="color:#3a5070;font-size:.88rem;">Enter the SQL Server connection above to manage environment configurations.</p>
+        </div>
+    }
+    else if (_configs.Count == 0)
+    {
+        <div class="env-empty">
+            <svg viewBox="0 0 64 64" fill="none" width="52" height="52">
+                <rect x="8" y="8" width="48" height="48" rx="8" stroke="#1a3a6b" stroke-width="2.5" opacity=".4"/>
+                <path d="M22 32h20M32 22v20" stroke="#4a90d9" stroke-width="2.5" stroke-linecap="round" opacity=".6"/>
+            </svg>
+            <p>No environments configured yet. Click <strong>+ New Environment</strong> to get started.</p>
+        </div>
+    }
+    else
+    {
+        <div class="env-table-wrap">
+            <table class="env-table">
+                <thead>
+                    <tr>
+                        <th>Environment Key</th>
+                        <th>Tenant ID</th>
+                        <th>Client ID</th>
+                        <th>Certificate Thumbprint</th>
+                        <th>Created</th>
+                        <th>Updated</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var cfg in _configs)
+                    {
+                        <tr>
+                            <td class="env-key">@cfg.EnvironmentKey</td>
+                            <td class="env-mono">@Mask(cfg.TenantId)</td>
+                            <td class="env-mono">@Mask(cfg.ClientId)</td>
+                            <td class="env-mono">@MaskThumb(cfg.CertificateThumbprint)</td>
+                            <td class="env-date">@cfg.CreatedAt.ToString("dd MMM yyyy HH:mm")</td>
+                            <td class="env-date">@(cfg.UpdatedAt.HasValue ? cfg.UpdatedAt.Value.ToString("dd MMM yyyy HH:mm") : "—")</td>
+                            <td class="env-actions">
+                                <button class="btn-edit" @onclick="@(() => OpenEditModal(cfg))" title="Edit">
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                    Edit
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+<style>
+.env-page   { padding:1.5rem 2rem; }
+.env-header { display:flex; align-items:flex-start; justify-content:space-between;
+              flex-wrap:wrap; gap:1rem; margin-bottom:1.25rem; }
+.env-title  { font-size:1.45rem; font-weight:700; color:#c8daf0; margin:0; }
+.env-sub    { font-size:.78rem; color:#4a6a88; }
+
+.btn-add {
+    display:flex; align-items:center; gap:.45rem;
+    background:#112040; border:1px solid #1B8FFF; color:#5ab5ff;
+    border-radius:7px; padding:.48rem 1rem; font-size:.82rem; font-weight:600;
+    cursor:pointer; transition: background .15s, color .15s;
+}
+.btn-add:hover:not(:disabled) { background:#1a3060; color:#90d0ff; }
+.btn-add:disabled { opacity:.4; cursor:not-allowed; }
+
+/* ── SQL connection panel ── */
+.sql-panel {
+    background:#080e1c; border:1px solid #1e3050; border-radius:9px;
+    padding:1rem 1.25rem; margin-bottom:1.25rem; display:flex; flex-direction:column; gap:.75rem;
+}
+.sql-panel-title {
+    display:flex; align-items:center; gap:.5rem;
+    font-size:.78rem; font-weight:700; color:#5a9aee; text-transform:uppercase; letter-spacing:.06em;
+}
+.sql-panel-row { display:flex; align-items:flex-end; gap:.75rem; flex-wrap:wrap; }
+.sql-field { display:flex; flex-direction:column; gap:.3rem; flex:1; min-width:160px; }
+.btn-connect {
+    background:#112040; border:1px solid #1B8FFF; color:#5ab5ff;
+    border-radius:7px; padding:.48rem 1.2rem; font-size:.83rem; font-weight:600;
+    cursor:pointer; display:flex; align-items:center; gap:.4rem; white-space:nowrap;
+    transition: background .15s;
+}
+.btn-connect:hover:not(:disabled) { background:#1a3060; }
+.btn-connect:disabled { opacity:.5; cursor:not-allowed; }
+.sql-error {
+    display:flex; align-items:center; gap:.45rem;
+    color:#e07070; font-size:.78rem; padding:.4rem .6rem;
+    background:#1a0a0a; border-radius:5px; border:1px solid #4a1a1a;
+}
+
+/* ── Connected badge ── */
+.cs-badge {
+    display:inline-flex; align-items:center; gap:.4rem;
+    font-size:.76rem; color:#4caf90; background:#081810; border:1px solid #0e3020;
+    border-radius:6px; padding:.3rem .75rem; margin-bottom:1rem;
+}
+.cs-badge-val { color:#6ae0a0; font-family:monospace; }
+
+.env-loading { color:#4a6a88; font-size:.88rem; padding:2rem 0; }
+
+.env-empty {
+    display:flex; flex-direction:column; align-items:center; gap:1rem;
+    padding:3rem 0; color:#3a5070; font-size:.88rem; text-align:center;
+}
+
+.env-table-wrap { overflow-x:auto; border-radius:10px; border:1px solid #1e1e38; background:#10101f; }
+.env-table { width:100%; border-collapse:collapse; font-size:.82rem; }
+.env-table thead tr { background:#151528; }
+.env-table th { padding:.65rem .9rem; color:#7090c0; font-weight:600; text-align:left;
+                border-bottom:1px solid #1e1e38; white-space:nowrap; }
+.env-table td { padding:.6rem .9rem; border-bottom:1px solid #1a1a30; color:#b0bcd4; vertical-align:middle; }
+.env-table tr:last-child td { border-bottom:none; }
+.env-table tr:hover td { background:#13132a; }
+.env-key  { font-weight:700; color:#5ab5ff; }
+.env-mono { font-family:monospace; font-size:.75rem; color:#7a9ab8; }
+.env-date { font-family:monospace; font-size:.75rem; color:#556; white-space:nowrap; }
+.env-actions { text-align:right; }
+
+.btn-edit {
+    display:inline-flex; align-items:center; gap:.35rem;
+    background:transparent; border:1px solid #2a3a55; color:#5a7a9a;
+    border-radius:5px; padding:.3rem .7rem; font-size:.76rem; cursor:pointer;
+    transition: border-color .15s, color .15s;
+}
+.btn-edit:hover { border-color:#5ab5ff; color:#90d0ff; }
+
+/* ── Modal ── */
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.7);
+                 display:flex; align-items:center; justify-content:center; z-index:10000; }
+.modal-box     { background:#0d1220; border:1px solid #1e3050; border-radius:12px;
+                 padding:1.75rem 2rem; max-width:500px; width:92%;
+                 box-shadow:0 8px 48px rgba(0,0,0,.75);
+                 display:flex; flex-direction:column; gap:1.1rem; }
+.modal-header  { display:flex; align-items:center; justify-content:space-between; }
+.modal-title   { font-size:1rem; font-weight:700; color:#c8daf0; }
+.modal-close   { background:none; border:none; color:#446; font-size:1.1rem; cursor:pointer; padding:.2rem .4rem; }
+.modal-close:hover { color:#90aac0; }
+.modal-alert {
+    display:flex; align-items:center; gap:.5rem;
+    background:#2a0f0f; border:1px solid #6b1a1a; border-radius:7px;
+    padding:.7rem 1rem; color:#e07070; font-size:.82rem;
+}
+.modal-field  { display:flex; flex-direction:column; gap:.35rem; }
+.mf-label     { font-size:.72rem; color:#5a7a9a; font-weight:700;
+                text-transform:uppercase; letter-spacing:.06em; }
+.req          { color:#e07070; }
+.mf-input     { background:#10101f; border:1px solid #1e2a44; color:#c8daf0;
+                border-radius:7px; padding:.48rem .8rem; font-size:.84rem; outline:none;
+                transition: border-color .15s; }
+.mf-input:focus { border-color:#1B8FFF; }
+.mf-input.mf-error { border-color:#9b2020; }
+.mf-err-msg   { color:#e07070; font-size:.72rem; }
+.modal-footer { display:flex; gap:.7rem; justify-content:flex-end; margin-top:.3rem; }
+.btn-cancel-modal {
+    background:transparent; border:1px solid #2a3a55; color:#6a8aaa;
+    border-radius:7px; padding:.48rem 1.2rem; font-size:.84rem; cursor:pointer;
+    transition: border-color .15s, color .15s;
+}
+.btn-cancel-modal:hover { border-color:#5a7a9a; color:#a0bcd0; }
+.btn-save {
+    background:#112040; border:1px solid #1B8FFF; color:#5ab5ff;
+    border-radius:7px; padding:.48rem 1.4rem; font-size:.84rem; font-weight:600;
+    cursor:pointer; display:flex; align-items:center; gap:.4rem;
+    transition: background .15s, color .15s;
+}
+.btn-save:hover:not(:disabled) { background:#1a3060; color:#90d0ff; }
+.btn-save:disabled { opacity:.5; cursor:not-allowed; }
+.spin { display:inline-block; animation: spin .7s linear infinite; }
+@@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+
+@code {
+    private List<EnvironmentConfig> _configs = new();
+    private bool _loading = false;
+    private bool _showModal = false;
+    private bool _submitted = false;
+    private bool _saving = false;
+    private string _modalError = string.Empty;
+    private int? _editId = null;
+    private EnvironmentConfig _form = new();
+
+    // Manual SQL connection fields (used when no CS is available from state yet)
+    private string _sqlServer = @"localhost\SQLEXPRESS";
+    private string _sqlDatabase = "DataCare-Demo";
+    private bool _connecting = false;
+    private string _connectError = string.Empty;
+
+    /// <summary>Returns the best available connection string: from state first, else from manual fields.</summary>
+    private string? ActiveCs => !string.IsNullOrWhiteSpace(State.LastConnectionString)
+        ? State.LastConnectionString
+        : null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        State.OnChanged += OnStateChanged;
+        // If a CS is already in state (e.g. ETL already ran), load immediately
+        if (!string.IsNullOrWhiteSpace(State.LastConnectionString))
+            await LoadConfigsAsync();
+        else
+            _loading = false;
+    }
+
+    // ── Manual connect ────────────────────────────────────────────────────
+    private async Task ConnectAsync()
+    {
+        _connectError = string.Empty;
+        if (string.IsNullOrWhiteSpace(_sqlServer) || string.IsNullOrWhiteSpace(_sqlDatabase))
+        {
+            _connectError = "Server and Database are required.";
+            return;
+        }
+        _connecting = true;
+        try
+        {
+            var cs = $"Server={_sqlServer.Trim()};Database={_sqlDatabase.Trim()};Trusted_Connection=True;TrustServerCertificate=True;";
+            // Test connection + ensure DB/tables exist
+            await using var conn = new SqlConnection(cs.Replace(_sqlDatabase.Trim(), "master"));
+            await conn.OpenAsync();
+            // Create database if missing
+            await using var createDb = new SqlCommand($"IF DB_ID(N'{_sqlDatabase.Trim()}') IS NULL CREATE DATABASE [{_sqlDatabase.Trim()}];", conn);
+            await createDb.ExecuteNonQueryAsync();
+
+            // Now connect to target DB and ensure tables
+            await EnsureTableAsync(cs);
+
+            // Store in state so all pages can use it
+            State.SetConnectionString(cs);
+            await LoadConfigsAsync();
+        }
+        catch (Exception ex)
+        {
+            _connectError = ex.Message;
+        }
+        finally
+        {
+            _connecting = false;
+        }
+    }
+
+    // ── Load configs ──────────────────────────────────────────────────────
+    private async Task LoadConfigsAsync()
+    {
+        _loading = true;
+        var cs = ActiveCs;
+        if (string.IsNullOrWhiteSpace(cs)) { _loading = false; return; }
+        try
+        {
+            await EnsureTableAsync(cs);
+            var list = new List<EnvironmentConfig>();
+            await using var conn = new SqlConnection(cs);
+            await conn.OpenAsync();
+            await using var cmd = new SqlCommand(TableDdl.EnvConfigSelectAll, conn);
+            await using var rdr = await cmd.ExecuteReaderAsync();
+            while (await rdr.ReadAsync())
+                list.Add(new EnvironmentConfig
+                {
+                    Id                    = rdr.GetInt32(0),
+                    EnvironmentKey        = rdr.GetString(1),
+                    TenantId              = rdr.GetString(2),
+                    ClientId              = rdr.GetString(3),
+                    CertificateThumbprint = rdr.GetString(4),
+                    CreatedAt             = rdr.GetDateTime(5),
+                    UpdatedAt             = rdr.IsDBNull(6) ? null : rdr.GetDateTime(6),
+                });
+            _configs = list;
+        }
+        catch { }
+        finally { _loading = false; }
+    }
+
+    private static async Task EnsureTableAsync(string cs)
+    {
+        await using var conn = new SqlConnection(cs);
+        await conn.OpenAsync();
+        await using var cmd = new SqlCommand(TableDdl.EnvConfigDdl, conn);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    // ── Modal open/close ──────────────────────────────────────────────────
+    private void OpenAddModal()
+    {
+        _form = new EnvironmentConfig();
+        _editId = null;
+        _submitted = false;
+        _modalError = string.Empty;
+        _showModal = true;
+    }
+
+    private void OpenEditModal(EnvironmentConfig cfg)
+    {
+        _form = new EnvironmentConfig
+        {
+            Id                    = cfg.Id,
+            EnvironmentKey        = cfg.EnvironmentKey,
+            TenantId              = cfg.TenantId,
+            ClientId              = cfg.ClientId,
+            CertificateThumbprint = cfg.CertificateThumbprint,
+        };
+        _editId = cfg.Id;
+        _submitted = false;
+        _modalError = string.Empty;
+        _showModal = true;
+    }
+
+    private void CloseModal()
+    {
+        _showModal = false;
+        _modalError = string.Empty;
+    }
+
+    // ── Save ──────────────────────────────────────────────────────────────
+    private async Task SaveAsync()
+    {
+        _submitted = true;
+        _modalError = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(_form.EnvironmentKey) ||
+            string.IsNullOrWhiteSpace(_form.TenantId)       ||
+            string.IsNullOrWhiteSpace(_form.ClientId)       ||
+            string.IsNullOrWhiteSpace(_form.CertificateThumbprint))
+            return;
+
+        var cs = ActiveCs;
+        if (string.IsNullOrWhiteSpace(cs))
+        {
+            _modalError = "No SQL connection. Use the connection panel above first.";
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            await using var conn = new SqlConnection(cs);
+            await conn.OpenAsync();
+
+            var checkSql = TableDdl.EnvConfigKeyExists(_form.EnvironmentKey.Trim(), _editId);
+            await using var checkCmd = new SqlCommand(checkSql, conn);
+            var exists = (int)(await checkCmd.ExecuteScalarAsync())! > 0;
+            if (exists)
+            {
+                _modalError = $"An environment with key \"{_form.EnvironmentKey.Trim()}\" already exists.";
+                return;
+            }
+
+            string sql = _editId.HasValue
+                ? TableDdl.EnvConfigUpdate(_editId.Value, _form.EnvironmentKey.Trim(),
+                    _form.TenantId.Trim(), _form.ClientId.Trim(), _form.CertificateThumbprint.Trim())
+                : TableDdl.EnvConfigInsert(_form.EnvironmentKey.Trim(),
+                    _form.TenantId.Trim(), _form.ClientId.Trim(), _form.CertificateThumbprint.Trim());
+
+            await using var saveCmd = new SqlCommand(sql, conn);
+            await saveCmd.ExecuteNonQueryAsync();
+
+            _showModal = false;
+            await LoadConfigsAsync();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            _modalError = ex.Message;
+        }
+        finally { _saving = false; }
+    }
+
+    private static string Mask(string s) => s.Length > 8 ? s[..8] + "…" : s;
+    private static string MaskThumb(string s) => s.Length > 10 ? s[..6] + "…" + s[^4..] : s;
+
+    private void OnStateChanged() => _ = InvokeAsync(async () =>
+    {
+        await LoadConfigsAsync();
+        StateHasChanged();
+    });
+
+    public void Dispose() => State.OnChanged -= OnStateChanged;
+}

@@ -1,5 +1,5 @@
-using DataCareLite.Components;
-using DataCareLite.Services;
+using DataCare.Components;
+using DataCare.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 

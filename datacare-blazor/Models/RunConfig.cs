@@ -1,4 +1,4 @@
-namespace DataCareLite.Models;
+namespace DataCare.Models;
 
 /// <summary>
 /// The 7 user-configurable parameters bound directly from the UI inputs.
@@ -15,7 +15,6 @@ public class RunConfig
     public string SqlServer { get; set; } = @"localhost\SQLEXPRESS";
     public string SqlDatabase { get; set; } = "DataCareTest";
     public string Period { get; set; } = "D180";
-    public string Department { get; set; } = "Information Technology";
 
     public string TargetConnectionString =>
         $"Server={SqlServer};Database={SqlDatabase};" +

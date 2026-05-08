@@ -4,8 +4,8 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <RootNamespace>DataCareLite</RootNamespace>
-    <AssemblyName>DataCareLite</AssemblyName>
+    <RootNamespace>DataCare</RootNamespace>
+    <AssemblyName>DataCare</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>

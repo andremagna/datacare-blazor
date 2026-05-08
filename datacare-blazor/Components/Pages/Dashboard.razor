@@ -1,14 +1,22 @@
 @page "/dashboard"
-@using DataCareLite.Models
-@using DataCareLite.Services
+@using DataCare.Models
+@using DataCare.Services
 @using Microsoft.Data.SqlClient
+@using System.Text
 @inject EtlStateService State
 @inject IJSRuntime JS
 @implements IDisposable
 
 <PageTitle>DataCare Dashboard</PageTitle>
 
-@if (!State.HasRun)
+@* FIX 7: always show dashboard — no more "run ETL first" gate *@
+@if (_loading)
+{
+    <div class="dash-empty">
+        <p class="dash-empty-msg">Loading dashboard data...</p>
+    </div>
+}
+else if (!_hasData)
 {
     <div class="dash-empty">
         <div class="dash-empty-icon">
@@ -19,47 +27,72 @@
                 <rect x="34" y="34" width="26" height="26" rx="4" fill="#1a3a6b" opacity=".15" />
             </svg>
         </div>
-        <h2 class="dash-empty-title">Nessun dato disponibile</h2>
-        <p class="dash-empty-msg">
-            Inserisci i valori obbligatori ed esegui il <strong>Run ETL</strong>
-            dalla pagina <a href="/">Home</a> per visualizzare la dashboard.
-        </p>
-    </div>
-}
-else if (!State.LastRunSuccess)
-{
-    <div class="dash-error-page">
-        <div class="dash-error-icon">&#9888;</div>
-        <h2 class="dash-error-title">Ops, errore imprevisto</h2>
-        <p class="dash-error-msg">
-            Si &egrave; verificato un errore durante l'esecuzione dell'ETL.<br />
-            Torna alla pagina <a href="/">Home</a> e riesegui l'ETL.
-        </p>
-    </div>
-}
-else if (_loading)
-{
-    <div class="dash-empty">
-        <p class="dash-empty-msg">Caricamento dati dashboard...</p>
+        <h2 class="dash-empty-title">No data available yet</h2>
+        <p class="dash-empty-msg">Run the ETL from the <a href="/">Home</a> page to populate the dashboard.</p>
     </div>
 }
 else
 {
     <div class="dashboard-page">
+
+        <!-- ── Header ────────────────────────────────────────────────── -->
         <div class="dash-header">
             <div>
                 <h1 class="dash-title">DataCare Dashboard</h1>
-                <span class="dash-sub">Microsoft 365 Usage Report</span>
+                <span class="dash-sub">Microsoft 365 Usage Custom Report</span>
             </div>
-            <div class="dept-filter">
-                <label class="dept-label">Department</label>
-                <select class="dept-select" @bind="_selectedDept" @bind:after="OnDeptChanged">
-                    <option value="">All departments</option>
-                    @foreach (var d in _departments)
-                    {
-                        <option value="@d">@d</option>
-                    }
-                </select>
+
+            <!-- FIX 3+4: Download buttons top-right, filters below them -->
+            <div class="dash-controls">
+                <!-- FIX 4: working download buttons -->
+                <div class="dl-group">
+                    <button class="dl-btn" @onclick="DownloadPdf">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                            <polyline points="14 2 14 8 20 8" />
+                            <line x1="12" y1="18" x2="12" y2="12" />
+                            <line x1="9" y1="15" x2="15" y2="15" />
+                        </svg>PDF
+                    </button>
+                    <button class="dl-btn" @onclick="DownloadJson">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="16 18 22 12 16 6" />
+                            <polyline points="8 6 2 12 8 18" />
+                        </svg>JSON
+                    </button>
+                    <button class="dl-btn" @onclick="DownloadCsv">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                            <polyline points="7 10 12 15 17 10" />
+                            <line x1="12" y1="15" x2="12" y2="3" />
+                        </svg>CSV
+                    </button>
+                </div>
+
+                <!-- FIX 3: filters below download buttons -->
+                <div class="filters-row">
+                    <div class="filter-item">
+                        <label class="filter-label">Department</label>
+                        <select class="filter-select" @bind="_selectedDept" @bind:after="OnFiltersChanged">
+                            <option value="">All departments</option>
+                            @foreach (var d in _departments)
+                            {
+                                <option value="@d">@d</option>
+                            }
+                        </select>
+                    </div>
+                    <!-- FIX 5: Month filter -->
+                    <div class="filter-item">
+                        <label class="filter-label">Month</label>
+                        <select class="filter-select" @bind="_selectedYearMonth" @bind:after="OnFiltersChanged">
+                            <option value="0">All months</option>
+                            @foreach (var m in _months)
+                            {
+                                <option value="@m.YearMonth">@m.Label</option>
+                            }
+                        </select>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -70,19 +103,10 @@ else
                 <div class="dcard-title">Number of users</div>
                 @BarChart("users", _data.Select(r => (r.MonthLabel, r.YearNum, (double)r.Users_Total)).ToList(), "#1B8FFF")
             </div>
+            <!-- FIX 2: SVG bubble map -->
             <div class="dcard dcard-map">
                 <div class="dcard-title">Country Involved</div>
-                <div class="country-table-wrap">
-                    <table class="ctable">
-                        <thead><tr><th>Country</th><th class="ct-num">Count</th></tr></thead>
-                        <tbody>
-                            @foreach (var c in _countries.Take(10))
-                            {
-                                <tr><td>@c.CountryName</td><td class="ct-num">@c.CountryCount</td></tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
+                <div id="azure-map" class="azure-map-container"></div>
             </div>
         </div>
 
@@ -146,85 +170,141 @@ else
     </div>
 }
 
+<div id="chart-tooltip" class="chart-tooltip" style="display:none;"></div>
+
 @code {
     private bool _loading = true;
+    private bool _hasData = false;
     private List<DashRow> _data = new();
     private List<CountryRow> _countries = new();
     private List<string> _departments = new();
+    private List<MonthItem> _months = new();
     private string _selectedDept = "";
+    private int _selectedYearMonth = 0;
+    private bool _mapInitialized = false;
+    private string? _cs;
 
     protected override async Task OnInitializedAsync()
     {
         State.OnChanged += OnStateChanged;
-        if ((State.HasRun && State.LastRunSuccess) || !string.IsNullOrWhiteSpace(State.LastConnectionString))
-            await LoadDataAsync();
-        else
-            _loading = false;
+        // FIX 7: try loading from existing DB immediately regardless of ETL state
+        _cs = State.LastConnectionString;
+        await LoadDataAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_loading && _hasData && _countries.Count > 0)
+            await RenderMapAsync();
     }
 
     private async Task LoadDataAsync()
     {
         _loading = true;
-        var cs = State.LastConnectionString;
-        if (string.IsNullOrWhiteSpace(cs)) { _loading = false; return; }
+        _mapInitialized = false;
+
+        // Refresh connection string if ETL just ran
+        if (!string.IsNullOrWhiteSpace(State.LastConnectionString))
+            _cs = State.LastConnectionString;
+
+        if (string.IsNullOrWhiteSpace(_cs)) { _loading = false; return; }
+
         try
         {
-            await EnsureHistoryPopulatedAsync(cs);
-            if (_departments.Count == 0)
-                _departments = await QueryListAsync(cs, TableDdl.DepartmentListQuery(), r => r.GetString(0));
+            // Check history table exists and has rows
+            bool histExists = await TableExistsAsync(_cs, "PowerBIDataModelHistory");
+            if (!histExists) { _hasData = false; _loading = false; return; }
 
-            _data = await QueryListAsync(cs, TableDdl.DashboardQuery(_selectedDept), r => new DashRow
+            int histCount = await ScalarIntAsync(_cs, "SELECT COUNT(*) FROM dbo.PowerBIDataModelHistory");
+            if (histCount == 0) { _hasData = false; _loading = false; return; }
+
+            // Load filter lists (only once)
+            if (_departments.Count == 0)
+                _departments = await QueryListAsync(_cs, TableDdl.DepartmentListQuery(), r => r.GetString(0));
+            if (_months.Count == 0)
+                _months = await QueryListAsync(_cs, TableDdl.MonthListQuery(),
+                    r => new MonthItem { YearMonth = r.GetInt32(0), Label = r.GetString(1) });
+
+            // FIX 6: pass yearMonth filter
+            int? ym = _selectedYearMonth > 0 ? _selectedYearMonth : (int?)null;
+            _data = await QueryListAsync(_cs, TableDdl.DashboardQuery(_selectedDept, ym), r => new DashRow
             {
                 MonthLabel = r.IsDBNull(0) ? "" : r.GetString(0),
                 YearNum = r.IsDBNull(1) ? 0 : r.GetInt32(1),
                 MonthNum = r.IsDBNull(2) ? 0 : r.GetInt32(2),
-                Exchange_Item_Count = r.IsDBNull(3) ? 0 : r.GetInt64(3),
-                Exchange_Deleted_Item_Count = r.IsDBNull(4) ? 0 : r.GetInt64(4),
+                Exchange_Item_Count = r.IsDBNull(3) ? 0L : r.GetInt64(3),
+                Exchange_Deleted_Item_Count = r.IsDBNull(4) ? 0L : r.GetInt64(4),
                 Exchange_StorageUsedGB = r.IsDBNull(5) ? 0 : (double)r.GetDecimal(5),
                 Exchange_DeletedItemSizeGB = r.IsDBNull(6) ? 0 : (double)r.GetDecimal(6),
-                OneDrive_Total_File_Count = r.IsDBNull(7) ? 0 : r.GetInt64(7),
+                OneDrive_Total_File_Count = r.IsDBNull(7) ? 0L : r.GetInt64(7),
                 OneDrive_Total_StorageUsedGB = r.IsDBNull(8) ? 0 : (double)r.GetDecimal(8),
-                SharePoint_Total_File_Count = r.IsDBNull(9) ? 0 : r.GetInt64(9),
+                SharePoint_Total_File_Count = r.IsDBNull(9) ? 0L : r.GetInt64(9),
                 SharePoint_Total_StorageUsedGB = r.IsDBNull(10) ? 0 : (double)r.GetDecimal(10),
-                Users_Total = r.IsDBNull(11) ? 0 : r.GetInt32(11),
+                Users_Total = r.IsDBNull(11) ? 0L : r.GetInt64(11),
             });
-            _countries = await QueryListAsync(cs, TableDdl.CountryQuery(_selectedDept), r => new CountryRow
+
+            _countries = await QueryListAsync(_cs, TableDdl.CountryQuery(_selectedDept), r => new CountryRow
             {
                 CountryName = r.IsDBNull(0) ? "Unknown" : r.GetString(0),
                 CountryCount = r.IsDBNull(1) ? 0 : r.GetInt32(1),
             });
+
+            _hasData = _data.Count > 0 || _countries.Count > 0;
         }
-        catch { }
+        catch { _hasData = false; }
         finally { _loading = false; }
     }
 
-    private async Task OnDeptChanged() { await LoadDataAsync(); StateHasChanged(); }
+    private async Task RenderMapAsync()
+    {
+        if (_mapInitialized) return;
+        try
+        {
+            var pts = _countries
+                .Where(c => !string.IsNullOrWhiteSpace(c.CountryName) && c.CountryName != "Unknown")
+                .Select(c => new { name = c.CountryName, count = c.CountryCount })
+                .ToArray();
+            await JS.InvokeVoidAsync("datacareMap.init", "azure-map", pts);
+            _mapInitialized = true;
+        }
+        catch { }
+    }
+
+    private async Task OnFiltersChanged()
+    {
+        _mapInitialized = false;
+        await LoadDataAsync();
+        StateHasChanged();
+    }
 
     private void OnStateChanged() => _ = InvokeAsync(async () =>
     {
-        if (State.HasRun && State.LastRunSuccess) await LoadDataAsync();
+        await LoadDataAsync();
         StateHasChanged();
     });
 
     public void Dispose() => State.OnChanged -= OnStateChanged;
 
-    // ── EnsureHistoryPopulated ────────────────────────────────────────────────
-    private static async Task EnsureHistoryPopulatedAsync(string cs)
+    // ── DB helpers ────────────────────────────────────────────────────────
+    private static async Task<bool> TableExistsAsync(string cs, string table)
+    {
+        try
+        {
+            await using var conn = new SqlConnection(cs);
+            await conn.OpenAsync();
+            await using var cmd = new SqlCommand(
+                $"SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME='{table}'", conn);
+            return (int)(await cmd.ExecuteScalarAsync())! > 0;
+        }
+        catch { return false; }
+    }
+
+    private static async Task<int> ScalarIntAsync(string cs, string sql)
     {
         await using var conn = new SqlConnection(cs);
         await conn.OpenAsync();
-        await using var checkCmd = new SqlCommand(
-            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME='PowerBIDataModelHistory'", conn);
-        if ((int)(await checkCmd.ExecuteScalarAsync())! == 0) return;
-        await using var countCmd = new SqlCommand("SELECT COUNT(*) FROM dbo.PowerBIDataModelHistory", conn);
-        if ((int)(await countCmd.ExecuteScalarAsync())! > 0) return;
-        await using var srcCmd = new SqlCommand(
-            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME IN ('MicrosoftExchange','MicrosoftOneDrive','MicrosoftSharePoint','MicrosoftUsers')", conn);
-        if ((int)(await srcCmd.ExecuteScalarAsync())! < 4) return;
-        var execId = Guid.NewGuid();
-        var sql = $"DECLARE @ExecutionId UNIQUEIDENTIFIER = '{execId}';\n" + TableDdl.PowerBIAggregateQuery;
-        await using var cmd = new SqlCommand(sql, conn) { CommandTimeout = 180 };
-        await cmd.ExecuteNonQueryAsync();
+        await using var cmd = new SqlCommand(sql, conn);
+        return (int)(await cmd.ExecuteScalarAsync())!;
     }
 
     private static async Task<List<T>> QueryListAsync<T>(string cs, string sql, Func<SqlDataReader, T> map)
@@ -238,17 +318,50 @@ else
         return list;
     }
 
-    // ═════════════════════════════════════════════════════════════════════════
-    //  CHART RENDERERS — stile Power BI: barre piene, label sopra, assi puliti
-    // ═════════════════════════════════════════════════════════════════════════
+    // ── FIX 4: Download ───────────────────────────────────────────────────
+    private async Task DownloadJson()
+    {
+        var dept = string.IsNullOrWhiteSpace(_selectedDept) ? "all" : _selectedDept;
+        var obj = new { department = dept, generatedAt = DateTime.UtcNow, metrics = _data, countries = _countries };
+        var json = System.Text.Json.JsonSerializer.Serialize(obj,
+            new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        await JS.InvokeVoidAsync("datacareExport.downloadBase64",
+            $"datacare_{dept}_{DateTime.Now:yyyyMMdd}.json",
+            "application/json",
+            Convert.ToBase64String(Encoding.UTF8.GetBytes(json)));
+    }
 
-    // Dimensioni fisse
+    private async Task DownloadCsv()
+    {
+        var dept = string.IsNullOrWhiteSpace(_selectedDept) ? "all" : _selectedDept;
+        var sb = new StringBuilder();
+        sb.AppendLine("MonthLabel,Year,Month,Exchange_Item_Count,Exchange_Deleted_Item_Count," +
+                      "Exchange_StorageUsedGB,Exchange_DeletedItemSizeGB," +
+                      "OneDrive_File_Count,OneDrive_StorageUsedGB," +
+                      "SharePoint_File_Count,SharePoint_StorageUsedGB,Users_Total");
+        foreach (var r in _data)
+            sb.AppendLine($"\"{r.MonthLabel}\",{r.YearNum},{r.MonthNum}," +
+                          $"{r.Exchange_Item_Count},{r.Exchange_Deleted_Item_Count}," +
+                          $"{r.Exchange_StorageUsedGB:F2},{r.Exchange_DeletedItemSizeGB:F2}," +
+                          $"{r.OneDrive_Total_File_Count},{r.OneDrive_Total_StorageUsedGB:F2}," +
+                          $"{r.SharePoint_Total_File_Count},{r.SharePoint_Total_StorageUsedGB:F2},{r.Users_Total}");
+        await JS.InvokeVoidAsync("datacareExport.downloadBase64",
+            $"datacare_{dept}_{DateTime.Now:yyyyMMdd}.csv",
+            "text/csv",
+            Convert.ToBase64String(Encoding.UTF8.GetBytes(sb.ToString())));
+    }
+
+    private async Task DownloadPdf() =>
+        await JS.InvokeVoidAsync("datacareExport.downloadPdf");
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  CHART RENDERERS
+    // ═══════════════════════════════════════════════════════════════════════
     private const int CW = 360, CH = 200;
-    private const int PL = 48, PR = 12, PT = 26, PB = 46;   // PT alto per label sopra barre
+    private const int PL = 48, PR = 12, PT = 26, PB = 46;
     private static int PlotW => CW - PL - PR;
     private static int PlotH => CH - PT - PB;
 
-    // ── Single-series bar chart ───────────────────────────────────────────────
     private static RenderFragment BarChart(
         string id,
         List<(string Month, int Year, double Val)> data,
@@ -257,67 +370,68 @@ else
         if (data == null || data.Count == 0) { RenderEmpty(b); return; }
 
         double max = data.Max(d => d.Val);
-        double topVal = NiceTop(max);
+        double topV = NiceTop(max);
         double step = NiceStep(max, 5);
         int n = data.Count;
-
-        // bar geometry
         double slotW = (double)PlotW / n;
         double barW = Math.Max(8, Math.Min(52, slotW * 0.55));
 
         b.OpenElement(0, "svg");
         b.AddAttribute(1, "viewBox", $"0 0 {CW} {CH}");
-        b.AddAttribute(2, "style", "width:100%;height:200px;display:block;");
+        b.AddAttribute(2, "style", "width:100%;height:200px;display:block;overflow:visible;");
         b.AddAttribute(3, "xmlns", "http://www.w3.org/2000/svg");
 
-        // gradient def
         RenderGradDef(b, $"g{id}", color);
+        RenderYAxis(b, step, topV);
 
-        // Y grid + labels
-        RenderYAxis(b, step, topVal);
-
-        // Bars
         for (int i = 0; i < n; i++)
         {
             double v = data[i].Val;
-            double bH = topVal > 0 ? Math.Max(2, v / topVal * PlotH) : 2;
+            double bH = topV > 0 ? Math.Max(2, v / topV * PlotH) : 2;
             double bX = PL + slotW * i + (slotW - barW) / 2;
             double bY = PT + PlotH - bH;
+            string lbl = $"{data[i].Month} {data[i].Year}: {FormatVal(v)}";
 
-            // bar rect
+            b.OpenElement(0, "g");
+            b.AddAttribute(0, "class", "bar-g");
+            b.AddAttribute(0, "onmouseenter", $"datacareChart.show(event,'{lbl}')");
+            b.AddAttribute(0, "onmousemove", "datacareChart.move(event)");
+            b.AddAttribute(0, "onmouseleave", "datacareChart.hide()");
+
+            // invisible hit area
             b.OpenElement(0, "rect");
-            b.AddAttribute(0, "x", Fmt(bX));
-            b.AddAttribute(0, "y", Fmt(bY));
-            b.AddAttribute(0, "width", Fmt(barW));
-            b.AddAttribute(0, "height", Fmt(bH));
-            b.AddAttribute(0, "rx", "3");
-            b.AddAttribute(0, "fill", $"url(#g{id})");
+            b.AddAttribute(0, "x", Fmt(bX - 6)); b.AddAttribute(0, "y", PT.ToString());
+            b.AddAttribute(0, "width", Fmt(barW + 12)); b.AddAttribute(0, "height", PlotH.ToString());
+            b.AddAttribute(0, "fill", "transparent");
             b.CloseElement();
 
-            // value label above bar
+            // bar
+            b.OpenElement(0, "rect");
+            b.AddAttribute(0, "class", "bar-r");
+            b.AddAttribute(0, "x", Fmt(bX)); b.AddAttribute(0, "y", Fmt(bY));
+            b.AddAttribute(0, "width", Fmt(barW)); b.AddAttribute(0, "height", Fmt(bH));
+            b.AddAttribute(0, "rx", "3"); b.AddAttribute(0, "fill", $"url(#g{id})");
+            b.CloseElement();
+
+            // label above bar
             b.OpenElement(0, "text");
-            b.AddAttribute(0, "x", Fmt(bX + barW / 2));
-            b.AddAttribute(0, "y", Fmt(bY - 5));
-            b.AddAttribute(0, "text-anchor", "middle");
-            b.AddAttribute(0, "fill", "#c8daf0");
-            b.AddAttribute(0, "font-size", "11");
-            b.AddAttribute(0, "font-weight", "600");
+            b.AddAttribute(0, "x", Fmt(bX + barW / 2)); b.AddAttribute(0, "y", Fmt(bY - 5));
+            b.AddAttribute(0, "text-anchor", "middle"); b.AddAttribute(0, "fill", "#c8daf0");
+            b.AddAttribute(0, "font-size", "11"); b.AddAttribute(0, "font-weight", "600");
             b.AddAttribute(0, "font-family", "'Segoe UI',sans-serif");
             b.AddContent(0, FormatVal(v));
             b.CloseElement();
 
-            // X axis month label
+            b.CloseElement(); // bar-g
+
             RenderXLabel(b, bX + barW / 2, data[i].Month, data[i].Year,
-                         i == 0 || data[i].Year != data[i - 1].Year);
+                i == 0 || data[i].Year != data[i - 1].Year);
         }
 
-        // baseline
         RenderBaseline(b);
-
-        b.CloseElement(); // svg
+        b.CloseElement();
     };
 
-    // ── Grouped bar chart ─────────────────────────────────────────────────────
     private static RenderFragment GroupedBarChart(
         string id,
         List<(string Month, int Year)> labels,
@@ -329,9 +443,8 @@ else
         int n = rows.Count;
         int s = series.Count;
         double max = rows.SelectMany(r => series.Select(sv => sv.Get(r))).DefaultIfEmpty(1).Max();
-        double topVal = NiceTop(max);
+        double topV = NiceTop(max);
         double step = NiceStep(max, 5);
-
         double slotW = (double)PlotW / n;
         double gap = 3;
         double barW = Math.Max(5, Math.Min(30, (slotW * 0.7 - gap * (s - 1)) / s));
@@ -339,99 +452,91 @@ else
 
         b.OpenElement(0, "svg");
         b.AddAttribute(1, "viewBox", $"0 0 {CW} {CH}");
-        b.AddAttribute(2, "style", "width:100%;height:200px;display:block;");
+        b.AddAttribute(2, "style", "width:100%;height:200px;display:block;overflow:visible;");
         b.AddAttribute(3, "xmlns", "http://www.w3.org/2000/svg");
 
-        // gradient defs per series
         for (int si = 0; si < s; si++)
             RenderGradDef(b, $"gg{id}{si}", series[si].Color);
 
-        // legend top-right
-        double legX = CW - PR - (s * 70);
+        // legend
+        double legX = CW - PR - s * 72.0;
         for (int si = 0; si < s; si++)
         {
             b.OpenElement(0, "rect");
-            b.AddAttribute(0, "x", Fmt(legX + si * 70)); b.AddAttribute(0, "y", "6");
+            b.AddAttribute(0, "x", Fmt(legX + si * 72)); b.AddAttribute(0, "y", "5");
             b.AddAttribute(0, "width", "10"); b.AddAttribute(0, "height", "10");
             b.AddAttribute(0, "rx", "2"); b.AddAttribute(0, "fill", series[si].Color);
             b.CloseElement();
             b.OpenElement(0, "text");
-            b.AddAttribute(0, "x", Fmt(legX + si * 70 + 14)); b.AddAttribute(0, "y", "15");
+            b.AddAttribute(0, "x", Fmt(legX + si * 72 + 14)); b.AddAttribute(0, "y", "14");
             b.AddAttribute(0, "fill", "#8ab0d0"); b.AddAttribute(0, "font-size", "10");
-            b.AddAttribute(0, "font-family", "'Segoe UI',sans-serif");
             b.AddContent(0, series[si].Label);
             b.CloseElement();
         }
 
-        RenderYAxis(b, step, topVal);
+        RenderYAxis(b, step, topV);
 
         for (int i = 0; i < n; i++)
         {
             double gX = PL + slotW * i + (slotW - groupUsed) / 2;
-
             for (int si = 0; si < s; si++)
             {
                 double v = series[si].Get(rows[i]);
-                double bH = topVal > 0 ? Math.Max(2, v / topVal * PlotH) : 2;
+                double bH = topV > 0 ? Math.Max(2, v / topV * PlotH) : 2;
                 double bX = gX + si * (barW + gap);
                 double bY = PT + PlotH - bH;
+                string lbl = $"{labels[i].Month} {labels[i].Year} — {series[si].Label}: {FormatVal(v)}";
+
+                b.OpenElement(0, "g");
+                b.AddAttribute(0, "class", "bar-g");
+                b.AddAttribute(0, "onmouseenter", $"datacareChart.show(event,'{lbl}')");
+                b.AddAttribute(0, "onmousemove", "datacareChart.move(event)");
+                b.AddAttribute(0, "onmouseleave", "datacareChart.hide()");
 
                 b.OpenElement(0, "rect");
-                b.AddAttribute(0, "x", Fmt(bX));
-                b.AddAttribute(0, "y", Fmt(bY));
-                b.AddAttribute(0, "width", Fmt(barW));
-                b.AddAttribute(0, "height", Fmt(bH));
-                b.AddAttribute(0, "rx", "2");
-                b.AddAttribute(0, "fill", $"url(#gg{id}{si})");
+                b.AddAttribute(0, "class", "bar-r");
+                b.AddAttribute(0, "x", Fmt(bX)); b.AddAttribute(0, "y", Fmt(bY));
+                b.AddAttribute(0, "width", Fmt(barW)); b.AddAttribute(0, "height", Fmt(bH));
+                b.AddAttribute(0, "rx", "2"); b.AddAttribute(0, "fill", $"url(#gg{id}{si})");
+                b.CloseElement();
                 b.CloseElement();
             }
-
             RenderXLabel(b, gX + groupUsed / 2, labels[i].Month, labels[i].Year,
-                         i == 0 || labels[i].Year != labels[i - 1].Year);
+                i == 0 || labels[i].Year != labels[i - 1].Year);
         }
 
         RenderBaseline(b);
         b.CloseElement();
     };
 
-    // ── Shared SVG helpers ────────────────────────────────────────────────────
-
+    // ── SVG helpers ──────────────────────────────────────────────────────
     private static void RenderGradDef(
         Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder b,
         string gid, string color)
     {
-        // top color = color slightly lighter, bottom = color itself (solid, no transparency)
-        string top = LightenHex(color, 50);
         b.OpenElement(0, "defs");
         b.OpenElement(0, "linearGradient");
         b.AddAttribute(0, "id", gid);
         b.AddAttribute(0, "x1", "0"); b.AddAttribute(0, "y1", "0");
         b.AddAttribute(0, "x2", "0"); b.AddAttribute(0, "y2", "1");
         b.OpenElement(0, "stop");
-        b.AddAttribute(0, "offset", "0%");
-        b.AddAttribute(0, "stop-color", top);
-        b.AddAttribute(0, "stop-opacity", "1");
-        b.CloseElement();
+        b.AddAttribute(0, "offset", "0%"); b.AddAttribute(0, "stop-color", LightenHex(color, 50));
+        b.AddAttribute(0, "stop-opacity", "1"); b.CloseElement();
         b.OpenElement(0, "stop");
-        b.AddAttribute(0, "offset", "100%");
-        b.AddAttribute(0, "stop-color", color);
-        b.AddAttribute(0, "stop-opacity", "1");
-        b.CloseElement();
-        b.CloseElement(); // linearGradient
-        b.CloseElement(); // defs
+        b.AddAttribute(0, "offset", "100%"); b.AddAttribute(0, "stop-color", color);
+        b.AddAttribute(0, "stop-opacity", "1"); b.CloseElement();
+        b.CloseElement(); b.CloseElement();
     }
 
     private static void RenderYAxis(
         Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder b,
-        double step, double topVal)
+        double step, double topV)
     {
         var ticks = new List<double>();
-        for (double t = 0; t <= topVal + step * 0.01; t += step) ticks.Add(t);
-
+        for (double t = 0; t <= topV + step * 0.01; t += step) ticks.Add(t);
         foreach (var t in ticks)
         {
-            double yp = PT + PlotH - (topVal > 0 ? t / topVal * PlotH : 0);
-
+            double yp = PT + PlotH - (topV > 0 ? t / topV * PlotH : 0);
             b.OpenElement(0, "line");
             b.AddAttribute(0, "x1", PL.ToString()); b.AddAttribute(0, "y1", Fmt(yp));
             b.AddAttribute(0, "x2", (CW - PR).ToString()); b.AddAttribute(0, "y2", Fmt(yp));
@@ -439,14 +544,10 @@ else
             b.AddAttribute(0, "stroke-width", t == 0 ? "1.2" : "0.7");
             b.AddAttribute(0, "stroke-dasharray", t == 0 ? "" : "4 3");
             b.CloseElement();
-
             b.OpenElement(0, "text");
-            b.AddAttribute(0, "x", (PL - 6).ToString());
-            b.AddAttribute(0, "y", Fmt(yp + 4));
-            b.AddAttribute(0, "text-anchor", "end");
-            b.AddAttribute(0, "fill", "#6a8aaa");
-            b.AddAttribute(0, "font-size", "10");
-            b.AddAttribute(0, "font-family", "'Segoe UI',ui-monospace,monospace");
+            b.AddAttribute(0, "x", (PL - 6).ToString()); b.AddAttribute(0, "y", Fmt(yp + 4));
+            b.AddAttribute(0, "text-anchor", "end"); b.AddAttribute(0, "fill", "#6a8aaa");
+            b.AddAttribute(0, "font-size", "10"); b.AddAttribute(0, "font-family", "'Segoe UI',monospace");
             b.AddContent(0, FormatVal(t));
             b.CloseElement();
         }
@@ -466,30 +567,19 @@ else
         Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder b,
         double cx, string month, int year, bool showYear)
     {
-        int baseLine = PT + PlotH;
-
-        // month abbreviation
+        int bl = PT + PlotH;
         b.OpenElement(0, "text");
-        b.AddAttribute(0, "x", Fmt(cx));
-        b.AddAttribute(0, "y", (baseLine + 16).ToString());
-        b.AddAttribute(0, "text-anchor", "middle");
-        b.AddAttribute(0, "fill", "#8ab0cc");
-        b.AddAttribute(0, "font-size", "11");
-        b.AddAttribute(0, "font-family", "'Segoe UI',sans-serif");
+        b.AddAttribute(0, "x", Fmt(cx)); b.AddAttribute(0, "y", (bl + 16).ToString());
+        b.AddAttribute(0, "text-anchor", "middle"); b.AddAttribute(0, "fill", "#8ab0cc");
+        b.AddAttribute(0, "font-size", "11"); b.AddAttribute(0, "font-family", "'Segoe UI',sans-serif");
         b.AddContent(0, month.Length > 3 ? month[..3] : month);
         b.CloseElement();
-
-        // year (only when it changes)
         if (showYear)
         {
             b.OpenElement(0, "text");
-            b.AddAttribute(0, "x", Fmt(cx));
-            b.AddAttribute(0, "y", (baseLine + 30).ToString());
-            b.AddAttribute(0, "text-anchor", "middle");
-            b.AddAttribute(0, "fill", "#4a6a88");
-            b.AddAttribute(0, "font-size", "10");
-            b.AddAttribute(0, "font-weight", "600");
-            b.AddAttribute(0, "font-family", "'Segoe UI',sans-serif");
+            b.AddAttribute(0, "x", Fmt(cx)); b.AddAttribute(0, "y", (bl + 30).ToString());
+            b.AddAttribute(0, "text-anchor", "middle"); b.AddAttribute(0, "fill", "#4a6a88");
+            b.AddAttribute(0, "font-size", "10"); b.AddAttribute(0, "font-weight", "600");
             b.AddContent(0, year.ToString());
             b.CloseElement();
         }
@@ -498,18 +588,16 @@ else
     private static void RenderEmpty(
         Microsoft.AspNetCore.Components.Rendering.RenderTreeBuilder b)
     {
-        b.OpenElement(0, "div");
-        b.AddAttribute(1, "class", "ch-empty");
-        b.AddContent(2, "Nessun dato");
-        b.CloseElement();
+        b.OpenElement(0, "div"); b.AddAttribute(1, "class", "ch-empty");
+        b.AddContent(2, "No data"); b.CloseElement();
     }
 
-    // ── Maths ─────────────────────────────────────────────────────────────────
+    // ── Maths & formatting ───────────────────────────────────────────────
     private static double NiceTop(double max)
     {
         if (max <= 0) return 1;
-        double step = NiceStep(max, 5);
-        return step * Math.Ceiling(max / step);
+        double s = NiceStep(max, 5);
+        return s * Math.Ceiling(max / s);
     }
 
     private static double NiceStep(double max, int ticks)
@@ -530,7 +618,8 @@ else
         return v == 0 ? "0" : v.ToString("F1");
     }
 
-    private static string Fmt(double v) => v.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+    private static string Fmt(double v) =>
+        v.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
 
     private static string LightenHex(string hex, int amt)
     {
@@ -545,7 +634,7 @@ else
         catch { return "#" + hex; }
     }
 
-    // ── Models ────────────────────────────────────────────────────────────────
+    // ── Models ───────────────────────────────────────────────────────────
     private class DashRow
     {
         public string MonthLabel { get; set; } = "";
@@ -559,7 +648,7 @@ else
         public double OneDrive_Total_StorageUsedGB { get; set; }
         public long SharePoint_Total_File_Count { get; set; }
         public double SharePoint_Total_StorageUsedGB { get; set; }
-        public int Users_Total { get; set; }
+        public long Users_Total { get; set; }
     }
 
     private class CountryRow
@@ -567,87 +656,95 @@ else
         public string CountryName { get; set; } = "";
         public int CountryCount { get; set; }
     }
+
+    private class MonthItem
+    {
+        public int YearMonth { get; set; }
+        public string Label { get; set; } = "";
+    }
 }
 
 <style>
-    /* ── Layout ──────────────────────────────────────────────────────────────── */
-    .dashboard-page { padding:1.5rem 2rem; }
-    .dash-header    { display:flex; align-items:flex-start; justify-content:space-between;
-                      flex-wrap:wrap; gap:1rem; margin-bottom:1rem; }
-    .dash-title     { font-size:1.45rem; font-weight:700; color:#c8daf0; margin:0; }
-    .dash-sub       { font-size:.78rem; color:#4a6a88; }
+    /* ── Layout ────────────────────────────────────────────────────── */
+    .dashboard-page  { padding:1.5rem 2rem; }
+    .dash-header     { display:flex; align-items:flex-start; justify-content:space-between;
+                       flex-wrap:wrap; gap:1rem; margin-bottom:1rem; }
+    .dash-title      { font-size:1.45rem; font-weight:700; color:#c8daf0; margin:0; }
+    .dash-sub        { font-size:.78rem; color:#4a6a88; }
 
-    /* dept filter */
-    .dept-filter  { display:flex; align-items:center; gap:.6rem; margin-left:auto; }
-    .dept-label   { font-size:.78rem; color:#7090c0; font-weight:600; }
-    .dept-select  { background:#151528; border:1px solid #2a2a44; color:#c8d0e7;
-                    border-radius:6px; padding:.4rem .8rem; font-size:.82rem;
-                    outline:none; cursor:pointer; min-width:180px; }
-    .dept-select:focus { border-color:#1B8FFF; }
+    /* FIX 3: controls column — download buttons on top, filters below */
+    .dash-controls   { display:flex; flex-direction:column; align-items:flex-end; gap:.55rem; }
+
+    /* FIX 4: download buttons */
+    .dl-group  { display:flex; gap:.4rem; }
+    .dl-btn    { display:flex; align-items:center; gap:.35rem;
+                 background:#0d1628; border:1px solid #1e3050;
+                 color:#7aaccc; border-radius:6px; padding:.38rem .75rem;
+                 font-size:.75rem; font-weight:600; cursor:pointer;
+                 transition: background .15s, border-color .15s, color .15s; }
+    .dl-btn:hover { background:#112040; border-color:#1B8FFF; color:#c8e4ff; }
+
+    /* FIX 3+5: filters row */
+    .filters-row     { display:flex; gap:.6rem; align-items:flex-end; }
+    .filter-item     { display:flex; flex-direction:column; gap:.2rem; }
+    .filter-label    { font-size:.68rem; color:#4a6a88; font-weight:600;
+                       text-transform:uppercase; letter-spacing:.06em; }
+    .filter-select   { background:#151528; border:1px solid #2a2a44; color:#c8d0e7;
+                       border-radius:6px; padding:.38rem .75rem; font-size:.8rem;
+                       outline:none; cursor:pointer; min-width:160px; }
+    .filter-select:focus { border-color:#1B8FFF; }
 
     /* section bands */
-    .section-band {
-        display:flex; align-items:center; gap:.5rem;
-        background:#0d1020; border:1px solid #1c2038; border-bottom:none;
-        border-radius:6px 6px 0 0; padding:.4rem 1rem;
-    }
-    .section-band-dark { background:#090b14; }
-    .section-band-blue { background:#070d1a; }
-    .section-band-teal { background:#060f12; }
+    .section-band       { display:flex; align-items:center; gap:.5rem;
+                          background:#0d1020; border:1px solid #1c2038; border-bottom:none;
+                          border-radius:6px 6px 0 0; padding:.4rem 1rem; }
+    .section-band-dark  { background:#090b14; }
+    .section-band-blue  { background:#070d1a; }
+    .section-band-teal  { background:#060f12; }
     .section-band-title { font-size:.75rem; font-weight:700; color:#8aaccc;
                           letter-spacing:.06em; text-transform:uppercase; }
-    .section-badge-sp {
-        width:15px; height:15px; border-radius:3px; background:#00a090;
-        color:#fff; font-size:.6rem; font-weight:700;
-        display:inline-flex; align-items:center; justify-content:center;
-    }
-    .section-badge-ex {
-        width:15px; height:15px; border-radius:3px; background:#0066cc;
-        color:#fff; font-size:.6rem; font-weight:700;
-        display:inline-flex; align-items:center; justify-content:center;
-    }
+    .section-badge-sp   { width:15px;height:15px;border-radius:3px;background:#00a090;
+                          color:#fff;font-size:.6rem;font-weight:700;
+                          display:inline-flex;align-items:center;justify-content:center; }
+    .section-badge-ex   { width:15px;height:15px;border-radius:3px;background:#0066cc;
+                          color:#fff;font-size:.6rem;font-weight:700;
+                          display:inline-flex;align-items:center;justify-content:center; }
 
     /* cards */
-    .cards-row      { display:flex; gap:.5rem; flex-wrap:wrap; margin-bottom:.5rem; }
+    .cards-row       { display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.5rem; }
     .cards-row.no-mb { margin-bottom:0; }
-    .mb-sm          { margin-bottom:.5rem; }
-    .dcard {
-        background:#0a0c1c; border:1px solid #161830; border-top:none;
-        border-radius:0 0 8px 8px; padding:.6rem .7rem .4rem;
-        flex:1; min-width:0;
-    }
-    .dcard-map  { flex:2.2; }
-    .dcard-title {
-        font-size:.68rem; font-weight:700; color:#4a6488;
-        text-transform:uppercase; letter-spacing:.08em; margin-bottom:.4rem;
-    }
+    .mb-sm           { margin-bottom:.5rem; }
+    .dcard           { background:#0a0c1c;border:1px solid #161830;border-top:none;
+                       border-radius:0 0 8px 8px;padding:.6rem .7rem .4rem;flex:1;min-width:0; }
+    .dcard-map       { flex:2.2; }
+    .dcard-title     { font-size:.68rem;font-weight:700;color:#4a6488;
+                       text-transform:uppercase;letter-spacing:.08em;margin-bottom:.4rem; }
+    .two-sections-row { display:flex;gap:.5rem;margin-bottom:.5rem; }
+    .section-col      { flex:1;min-width:0; }
 
-    /* two-column layout */
-    .two-sections-row { display:flex; gap:.5rem; margin-bottom:.5rem; }
-    .section-col      { flex:1; min-width:0; }
+    /* FIX 2: map container — enough height so SVG is visible */
+    .azure-map-container { width:100%;height:230px;border-radius:4px;overflow:hidden;
+                           background:#0a0f1e; }
 
-    /* country table */
-    .country-table-wrap { overflow-y:auto; max-height:160px; }
-    .ctable     { width:100%; border-collapse:collapse; font-size:.72rem; }
-    .ctable th  { color:#3a5070; font-weight:600; padding:3px 6px; border-bottom:1px solid #1a2030; }
-    .ctable td  { color:#7090aa; padding:3px 6px; }
-    .ctable tr:hover td { color:#a0c0d8; background:#0f1120; }
-    .ct-num     { text-align:right; color:#1B8FFF; font-weight:700; font-family:monospace; }
+    /* bar hover */
+    .bar-g { cursor:pointer; }
+    .bar-r { transition:filter .15s ease; }
+    .bar-g:hover .bar-r { filter:brightness(1.3) drop-shadow(0 0 5px rgba(56,189,248,.55)); }
 
-    /* empty chart */
-    .ch-empty { height:120px; display:flex; align-items:center; justify-content:center;
-                color:#1e2840; font-size:.8rem; }
+    /* tooltip */
+    .chart-tooltip  { position:fixed;z-index:9999;background:#0d1628;
+                      border:1px solid #2a4a7a;border-radius:6px;
+                      padding:6px 12px;font-size:.82rem;
+                      font-family:'Segoe UI',sans-serif;color:#c8e4ff;
+                      pointer-events:none;white-space:nowrap;
+                      box-shadow:0 4px 18px rgba(0,0,0,.55); }
 
-    /* empty/error page */
-    .dash-empty { display:flex; flex-direction:column; align-items:center;
-                  justify-content:center; min-height:55vh; gap:1rem; text-align:center; }
-    .dash-empty-title { font-size:1.1rem; font-weight:600; color:#3a5070; margin:0; }
-    .dash-empty-msg   { color:#3a5070; font-size:.88rem; }
+    /* empty states */
+    .ch-empty       { height:120px;display:flex;align-items:center;
+                      justify-content:center;color:#1e2840;font-size:.8rem; }
+    .dash-empty     { display:flex;flex-direction:column;align-items:center;
+                      justify-content:center;min-height:55vh;gap:1rem;text-align:center; }
+    .dash-empty-title { font-size:1.1rem;font-weight:600;color:#3a5070;margin:0; }
+    .dash-empty-msg   { color:#3a5070;font-size:.88rem; }
     .dash-empty-msg a { color:#1B8FFF; }
-    .dash-error-page  { display:flex; flex-direction:column; align-items:center;
-                        justify-content:center; min-height:55vh; gap:1rem; }
-    .dash-error-icon  { font-size:3rem; color:#cc4444; }
-    .dash-error-title { color:#cc4444; font-size:1.2rem; font-weight:700; }
-    .dash-error-msg   { color:#886060; font-size:.88rem; text-align:center; }
-    .dash-error-msg a { color:#1B8FFF; }
 </style>

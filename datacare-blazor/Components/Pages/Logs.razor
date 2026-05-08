@@ -1,13 +1,13 @@
 @page "/logs"
-@using DataCareLite.Models
-@using DataCareLite.Services
+@using DataCare.Models
+@using DataCare.Services
 @using Microsoft.Data.SqlClient
 @inject EtlStateService State
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @implements IDisposable
 
-<PageTitle>DataCare – Logs</PageTitle>
+<PageTitle>DataCare – Tasks</PageTitle>
 
 @if (_loading)
 {
@@ -18,7 +18,7 @@
                 <path d="M32 16v16l10 6" stroke="#4a90d9" stroke-width="3" stroke-linecap="round"/>
             </svg>
         </div>
-        <p class="dash-empty-msg">Caricamento log in corso...</p>
+        <p class="dash-empty-msg">Loading logs...</p>
     </div>
 }
 else if (!_hasData)
@@ -32,8 +32,8 @@ else if (!_hasData)
                 <line x1="18" y1="42" x2="30" y2="42" stroke="#4a90d9" stroke-width="2" stroke-linecap="round" opacity=".25"/>
             </svg>
         </div>
-        <h2 class="dash-empty-title">Nessun log disponibile</h2>
-        <p class="dash-empty-msg">Esegui il <strong>Run ETL</strong> dalla pagina <a href="/">Home</a> per visualizzare i log di esecuzione.</p>
+        <h2 class="dash-empty-title">No logs available</h2>
+        <p class="dash-empty-msg">Run the <strong>ETL</strong> from the <a href="/">Home</a> page, or configure the SQL connection on the <a href="/environment">Environment Configuration</a> page to view logs.</p>
     </div>
 }
 else
@@ -41,39 +41,44 @@ else
     <div class="logs-page">
         <div class="dash-header">
             <div>
-                <h1 class="dash-title">Execution Logs</h1>
-                <span class="dash-sub">dbo.ExecutionLog — tutte le esecuzioni</span>
+                <h1 class="dash-title">Execution Tasks</h1>
+                <span class="dash-sub">dbo.ExecutionLog — all executions</span>
             </div>
             <div class="logs-filter-row">
-                <input class="logs-search" type="text" placeholder="Cerca per ExecutionId, ReportName, Status…"
-                       @bind="_search" @bind:event="oninput" />
+                <input class="logs-search"
+                   type="text"
+                   placeholder="Search by ExecutionId, ReportName, Status…"
+                   @bind="_search"
+                   @bind:event="oninput"
+                   @bind:after="() => _page = 1" />
             </div>
         </div>
 
-        <div class="logs-table-wrap">
-            <table class="logs-table">
+        <div class="env-table-wrap">
+            <table class="env-table">
                 <thead>
                     <tr>
                         <th @onclick="@(() => SortBy("ExecutionId"))" class="sortable @(SortClass("ExecutionId"))">Execution ID</th>
-                        <th @onclick="@(() => SortBy("ExecutionDate"))" class="sortable @(SortClass("ExecutionDate"))">Data</th>
+                        <th @onclick="@(() => SortBy("ExecutionDate"))" class="sortable @(SortClass("ExecutionDate"))">Date</th>
                         <th @onclick="@(() => SortBy("ReportName"))" class="sortable @(SortClass("ReportName"))">Report</th>
                         <th @onclick="@(() => SortBy("Status"))" class="sortable @(SortClass("Status"))">Status</th>
-                        <th @onclick="@(() => SortBy("RowsRetrieved"))" class="sortable @(SortClass("RowsRetrieved"))">Recuperate</th>
-                        <th @onclick="@(() => SortBy("RowsInserted"))" class="sortable @(SortClass("RowsInserted"))">Inserite</th>
-                        <th @onclick="@(() => SortBy("DurationSeconds"))" class="sortable @(SortClass("DurationSeconds"))">Durata</th>
-                        <th>Errore</th>
+                        <th @onclick="@(() => SortBy("RowsRetrieved"))" class="sortable @(SortClass("RowsRetrieved"))">Retrieved</th>
+                        <th @onclick="@(() => SortBy("RowsInserted"))" class="sortable @(SortClass("RowsInserted"))">Inserted</th>
+                        <th @onclick="@(() => SortBy("DurationTimeJob"))" class="sortable @(SortClass("DurationTimeJob"))">Duration</th>
+                        <th @onclick="@(() => SortBy("TableSizeMB"))" class="sortable @(SortClass("TableSizeMB"))">Size (MB)</th>
+                        <th>Error</th>
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var r in Filtered())
+                    @foreach (var r in PagedRows())
                     {
                         <tr class="@(r.IsSuccess ? "" : "log-row-err")">
                             <td class="log-execid">
                                 @if (r.ExecutionId.HasValue)
                                 {
                                     <span class="execid-short" title="@r.ExecutionId.Value.ToString("D")">@(r.ExecutionId.Value.ToString("D")[..8])…</span>
-                                    <button class="copy-btn" title="Copia ExecutionId"
-                                            onclick="@(() => CopyToClipboard(r.ExecutionId!.Value.ToString("D")))">
+                                    <button class="copy-btn" title="Copy ExecutionId"
+                                            @onclick="@(() => CopyToClipboard(r.ExecutionId!.Value.ToString("D")))">
                                         @if (_copiedId == r.ExecutionId.Value)
                                         {
                                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4caf90" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -95,17 +100,27 @@ else
                             </td>
                             <td class="log-num">@r.RowsRetrieved.ToString("N0")</td>
                             <td class="log-num">@r.RowsInserted.ToString("N0")</td>
-                            <td class="log-num log-duration">@FormatDuration(r.DurationSeconds)</td>
+                            <td class="log-duration">@(string.IsNullOrWhiteSpace(r.DurationTimeJob) ? "—" : r.DurationTimeJob)</td>
+                            <td class="log-num log-size">@(r.TableSizeMB.HasValue ? r.TableSizeMB.Value.ToString("F2") : "—")</td>
                             <td class="log-err">@(r.ErrorMessage ?? "—")</td>
                         </tr>
                     }
                 </tbody>
             </table>
+        </div>
             <div class="logs-footer">
-                @_all.Count righe totali · @Filtered().Count() mostrate
+                <span>@_all.Count totali &nbsp;·&nbsp; @Filtered().Count() filtrati &nbsp;·&nbsp; Pagina @_page di @TotalPages</span>
+                <div class="pagination">
+                    <button class="pg-btn" @onclick="PrevPage" disabled="@(_page <= 1)">‹ Prec</button>
+                    @for (int p = 1; p <= TotalPages; p++)
+                    {
+                        var pCopy = p;
+                        <button class="pg-btn @(pCopy == _page ? "pg-active" : "")" @onclick="@(() => GoToPage(pCopy))">@pCopy</button>
+                    }
+                    <button class="pg-btn" @onclick="NextPage" disabled="@(_page >= TotalPages)">Succ ›</button>
+                </div>
             </div>
         </div>
-    </div>
 }
 
 <style>
@@ -113,47 +128,73 @@ else
 .logs-empty { display:flex; flex-direction:column; align-items:center; justify-content:center;
               min-height:55vh; gap:1rem; text-align:center; }
 .logs-filter-row { display:flex; gap:.75rem; align-items:center; }
-.logs-search { background:#151528; border:1px solid #2a2a44; color:#c8d0e7; border-radius:6px;
-               padding:.4rem .8rem; font-size:.82rem; width:260px; outline:none; }
-.logs-search::placeholder { color:#445; }
-.logs-table-wrap { overflow-x:auto; margin-top:1.25rem; border-radius:10px;
-                   border:1px solid #1e1e38; background:#10101f; }
-.logs-table { width:100%; border-collapse:collapse; font-size:.82rem; }
-.logs-table thead tr { background:#151528; }
-.logs-table th { padding:.65rem .9rem; color:#7090c0; font-weight:600; text-align:left;
-                 border-bottom:1px solid #1e1e38; white-space:nowrap; user-select:none; }
-.logs-table th.sortable { cursor:pointer; }
-.logs-table th.sortable:hover { color:#a0c0f0; }
-.logs-table th.sort-asc::after  { content:" ▲"; font-size:.7em; }
-.logs-table th.sort-desc::after { content:" ▼"; font-size:.7em; }
-.logs-table td { padding:.55rem .9rem; border-bottom:1px solid #1a1a30; color:#b0bcd4;
-                 vertical-align:top; }
-.logs-table tr:last-child td { border-bottom:none; }
-.logs-table tr:hover td { background:#13132a; }
+
+/* Search input con bordo evidenziato */
+.logs-search {
+    background: #10101f;
+    border: 1.5px solid #2a3a5a;
+    color: #c8d0e7;
+    border-radius: 7px;
+    padding: .42rem .85rem;
+    font-size: .82rem;
+    width: 300px;
+    outline: none;
+    transition: border-color .18s, box-shadow .18s;
+}
+.logs-search::placeholder { color: #445; }
+.logs-search:focus {
+    border-color: #1B8FFF;
+    box-shadow: 0 0 0 3px rgba(27,143,255,.18);
+}
+
+/* Stessa struttura di env-table-wrap/env-table (EnvironmentConfiguration) */
+.env-table-wrap { overflow-x:auto; border-radius:10px; border:1px solid #1e1e38; background:#10101f; }
+.env-table { width:100%; border-collapse:collapse; font-size:.82rem; }
+.env-table thead tr { background:#151528; }
+.env-table th { padding:.65rem .9rem; color:#7090c0; font-weight:600; text-align:left;
+                border-bottom:1px solid #1e1e38; white-space:nowrap; user-select:none; }
+.env-table th.sortable { cursor:pointer; }
+.env-table th.sortable:hover { color:#a0c0f0; }
+.env-table th.sort-asc::after  { content:" ▲"; font-size:.7em; }
+.env-table th.sort-desc::after { content:" ▼"; font-size:.7em; }
+.env-table td { padding:.6rem .9rem; border-bottom:1px solid #1a1a30; color:#b0bcd4; vertical-align:middle; }
+.env-table tr:last-child td { border-bottom:none; }
+.env-table tr:hover td { background:#13132a; }
 .log-row-err td { background:#1a0f0f; }
 .log-row-err:hover td { background:#1f1010; }
+
 .log-execid { font-family:monospace; font-size:.75rem; color:#5a7fa0; white-space:nowrap;
               display:flex; align-items:center; gap:.3rem; }
 .execid-short { cursor:default; }
-.copy-btn {
-    background: none; border: none; padding: 0; cursor: pointer;
-    display: inline-flex; align-items: center; justify-content: center;
-    width: 20px; height: 20px; border-radius: 4px;
-    opacity: 0.5; transition: opacity 0.15s, background 0.15s;
-    flex-shrink: 0;
-}
-.copy-btn:hover { opacity: 1; background: #1e2540; }
-.log-date { white-space:nowrap; color:#778; font-family:monospace; }
-.log-num  { text-align:right; font-family:monospace; }
-.log-err  { color:#e07070; font-size:.78rem; max-width:280px; word-break:break-word; }
+.copy-btn { background:none; border:none; padding:0; cursor:pointer;
+            display:inline-flex; align-items:center; justify-content:center;
+            width:20px; height:20px; border-radius:4px;
+            opacity:0.5; transition:opacity .15s, background .15s; flex-shrink:0; }
+.copy-btn:hover { opacity:1; background:#1e2540; }
+.log-date     { white-space:nowrap; color:#778; font-family:monospace; }
+.log-num      { text-align:right; font-family:monospace; }
+.log-err      { color:#e07070; font-size:.78rem; max-width:280px; word-break:break-word; }
+.log-duration { font-family:monospace; letter-spacing:.04em; color:#7ab8e0; }
+.log-size     { color:#7dc97d; font-family:monospace; }
 .log-badge { display:inline-block; padding:.15rem .55rem; border-radius:4px;
              font-size:.75rem; font-weight:700; letter-spacing:.03em; }
 .badge-ok   { background:#0e3322; color:#4caf90; }
 .badge-err  { background:#3a0f0f; color:#e07070; }
 .badge-warn { background:#2a200a; color:#e0b050; }
-.logs-footer { padding:.5rem 1rem; color:#445; font-size:.75rem; border-top:1px solid #1e1e38;
-               text-align:right; }
-.log-duration { font-family:monospace; letter-spacing:.04em; color:#7ab8e0; }
+
+/* ── Footer & paginazione ───────────────────── */
+.logs-footer { padding:.6rem 1rem; border-top:1px solid #1e1e38;
+               display:flex; align-items:center; justify-content:space-between;
+               flex-wrap:wrap; gap:.5rem; }
+.logs-footer span { color:#445; font-size:.75rem; }
+.pagination { display:flex; gap:.3rem; flex-wrap:wrap; align-items:center; }
+.pg-btn { background:#151528; border:1px solid #1e1e38; color:#556;
+          border-radius:5px; padding:.22rem .6rem;
+          font-size:.75rem; cursor:pointer; transition:background .15s, color .15s; min-width:28px; }
+.pg-btn:hover:not(:disabled) { background:#1e2a44; color:#a0c0f0; }
+.pg-btn:disabled { opacity:.35; cursor:not-allowed; }
+.pg-btn.pg-active { background:#1b3464; color:#4a90d9;
+                    border-color:#4a90d9; font-weight:700; }
 </style>
 
 @code {
@@ -164,6 +205,15 @@ else
     private string _sortCol = "ExecutionDate";
     private bool _sortDesc = true;
     private Guid? _copiedId = null;
+
+    // ── Paginazione ──────────────────────────────────
+    private const int PageSize = 20;
+    private int _page = 1;
+    private int TotalPages => Math.Max(1, (int)Math.Ceiling(Filtered().Count() / (double)PageSize));
+    private IEnumerable<ExecutionLogEntry> PagedRows() => Filtered().Skip((_page - 1) * PageSize).Take(PageSize);
+    private void GoToPage(int p) { _page = Math.Clamp(p, 1, TotalPages); }
+    private void PrevPage()      => GoToPage(_page - 1);
+    private void NextPage()      => GoToPage(_page + 1);
 
     protected override async Task OnInitializedAsync()
     {
@@ -176,7 +226,6 @@ else
         _loading = true;
         try
         {
-            // Try to get connection string from state (last used run)
             var cs = State.LastConnectionString;
             if (string.IsNullOrWhiteSpace(cs))
             {
@@ -184,31 +233,75 @@ else
                 return;
             }
             var list = new List<ExecutionLogEntry>();
+
+            // Verifica che il DB esista su master prima di tentare la connessione al target
+            var masterCs = new SqlConnectionStringBuilder(cs) { InitialCatalog = "master" }.ConnectionString;
+            await using (var masterConn = new SqlConnection(masterCs))
+            {
+                await masterConn.OpenAsync();
+                var dbName = new SqlConnectionStringBuilder(cs).InitialCatalog;
+                await using var chk = new SqlCommand(
+                    "SELECT COUNT(*) FROM sys.databases WHERE name=@n", masterConn);
+                chk.Parameters.AddWithValue("@n", dbName);
+                if ((int)(await chk.ExecuteScalarAsync())! == 0)
+                {
+                    _hasData = false;
+                    return;
+                }
+            }
+
             await using var conn = new SqlConnection(cs);
             await conn.OpenAsync();
-            await using var cmd = new SqlCommand(@"
+
+            // Rileva schema: DurationTimeJob (nuovo) o DurationSeconds (vecchio)
+            bool hasDurCol  = await ColumnExistsAsync(conn, "ExecutionLog", "DurationTimeJob");
+            bool hasSizeCol = await ColumnExistsAsync(conn, "ExecutionLog", "TableSizeMB");
+
+            string durationExpr = hasDurCol
+                ? "DurationTimeJob"
+                : @"CASE WHEN DurationSeconds IS NULL THEN NULL
+                         ELSE RIGHT('00'+CAST(DurationSeconds/3600 AS NVARCHAR),2)+':'+
+                              RIGHT('00'+CAST((DurationSeconds%3600)/60 AS NVARCHAR),2)+':'+
+                              RIGHT('00'+CAST(DurationSeconds%60 AS NVARCHAR),2) END";
+            string sizeExpr = hasSizeCol ? "TableSizeMB" : "NULL";
+
+            await using var cmd = new SqlCommand($@"
                 SELECT ExecutionId, ExecutionDate, ReportName, Status,
-                       RowsRetrieved, RowsInserted, DurationSeconds, ErrorMessage
+                       RowsRetrieved, RowsInserted,
+                       {durationExpr} AS Duration,
+                       ErrorMessage,
+                       {sizeExpr} AS TableSizeMB
                 FROM dbo.ExecutionLog
                 ORDER BY ExecutionDate DESC", conn);
+
             await using var rdr = await cmd.ExecuteReaderAsync();
             while (await rdr.ReadAsync())
                 list.Add(new ExecutionLogEntry
                 {
                     ExecutionId     = rdr.IsDBNull(0) ? null : rdr.GetGuid(0),
                     ExecutionDate   = rdr.GetDateTime(1),
-                    ReportName      = rdr.GetString(2),
-                    Status          = rdr.GetString(3),
+                    ReportName      = rdr.IsDBNull(2) ? "" : rdr.GetString(2),
+                    Status          = rdr.IsDBNull(3) ? "" : rdr.GetString(3),
                     RowsRetrieved   = rdr.IsDBNull(4) ? 0 : rdr.GetInt32(4),
                     RowsInserted    = rdr.IsDBNull(5) ? 0 : rdr.GetInt32(5),
-                    DurationSeconds = rdr.IsDBNull(6) ? 0 : rdr.GetInt32(6),
+                    DurationTimeJob = rdr.IsDBNull(6) ? "" : rdr.GetString(6),
                     ErrorMessage    = rdr.IsDBNull(7) ? null : rdr.GetString(7),
+                    TableSizeMB     = rdr.IsDBNull(8) ? null : (float?)Convert.ToSingle(rdr.GetValue(8)),
                 });
             _all = list;
             _hasData = _all.Count > 0;
         }
         catch { _hasData = false; }
         finally { _loading = false; }
+    }
+
+    private static async Task<bool> ColumnExistsAsync(SqlConnection conn, string table, string column)
+    {
+        await using var cmd = new SqlCommand(
+            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME=@t AND COLUMN_NAME=@c", conn);
+        cmd.Parameters.AddWithValue("@t", table);
+        cmd.Parameters.AddWithValue("@c", column);
+        return (int)(await cmd.ExecuteScalarAsync())! > 0;
     }
 
     private IEnumerable<ExecutionLogEntry> Filtered()
@@ -229,7 +322,8 @@ else
             "Status"          => _sortDesc ? q.OrderByDescending(r => r.Status)            : q.OrderBy(r => r.Status),
             "RowsRetrieved"   => _sortDesc ? q.OrderByDescending(r => r.RowsRetrieved)    : q.OrderBy(r => r.RowsRetrieved),
             "RowsInserted"    => _sortDesc ? q.OrderByDescending(r => r.RowsInserted)     : q.OrderBy(r => r.RowsInserted),
-            "DurationSeconds" => _sortDesc ? q.OrderByDescending(r => r.DurationSeconds)  : q.OrderBy(r => r.DurationSeconds),
+            "DurationTimeJob" => _sortDesc ? q.OrderByDescending(r => r.DurationTimeJob)  : q.OrderBy(r => r.DurationTimeJob),
+            "TableSizeMB"     => _sortDesc ? q.OrderByDescending(r => r.TableSizeMB)      : q.OrderBy(r => r.TableSizeMB),
             _                 => _sortDesc ? q.OrderByDescending(r => r.ExecutionDate)    : q.OrderBy(r => r.ExecutionDate),
         };
         return q;
@@ -239,6 +333,7 @@ else
     {
         if (_sortCol == col) _sortDesc = !_sortDesc;
         else { _sortCol = col; _sortDesc = true; }
+        _page = 1;
     }
 
     private string SortClass(string col) =>
@@ -256,13 +351,6 @@ else
             StateHasChanged();
         }
         catch { }
-    }
-
-    private static string FormatDuration(int totalSeconds)
-    {
-        if (totalSeconds <= 0) return "00:00:00";
-        var ts = TimeSpan.FromSeconds(totalSeconds);
-        return $"{(int)ts.TotalHours:D2}:{ts.Minutes:D2}:{ts.Seconds:D2}";
     }
 
     private void OnStateChanged() => _ = InvokeAsync(async () =>

@@ -1,6 +1,6 @@
 {
   "profiles": {
-    "DataCareLite": {
+    "DataCare": {
       "commandName": "Project",
       "launchBrowser": true,
       "environmentVariables": {

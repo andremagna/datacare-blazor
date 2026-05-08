@@ -9,43 +9,47 @@ build_property.InvariantGlobalization =
 build_property.PlatformNeutralAssembly = 
 build_property.EnforceExtendedAnalyzerRules = 
 build_property._SupportedPlatformList = Linux,macOS,Windows
-build_property.RootNamespace = DataCareLite
-build_property.RootNamespace = DataCareLite
-build_property.ProjectDir = C:\Tools\Workspace\Auth\datacare-blazor\
+build_property.RootNamespace = DataCare
+build_property.RootNamespace = DataCare
+build_property.ProjectDir = C:\Tools\Workspace\Auth\DataCare\
 build_property.EnableComHosting = 
 build_property.EnableGeneratedComInterfaceComImportInterop = 
 build_property.RazorLangVersion = 8.0
 build_property.SupportLocalizedComponentNames = 
 build_property.GenerateRazorMetadataSourceChecksumAttributes = 
-build_property.MSBuildProjectDirectory = C:\Tools\Workspace\Auth\datacare-blazor
+build_property.MSBuildProjectDirectory = C:\Tools\Workspace\Auth\DataCare
 build_property._RazorSourceGeneratorDebug = 
 build_property.EffectiveAnalysisLevelStyle = 8.0
 build_property.EnableCodeStyleSeverity = 
 
-[C:/Tools/Workspace/Auth/datacare-blazor/Components/App.razor]
+[C:/Tools/Workspace/Auth/DataCare/Components/App.razor]
 build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xBcHAucmF6b3I=
 build_metadata.AdditionalFiles.CssScope = 
 
-[C:/Tools/Workspace/Auth/datacare-blazor/Components/Layout/MainLayout.razor]
+[C:/Tools/Workspace/Auth/DataCare/Components/Layout/MainLayout.razor]
 build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xMYXlvdXRcTWFpbkxheW91dC5yYXpvcg==
 build_metadata.AdditionalFiles.CssScope = 
 
-[C:/Tools/Workspace/Auth/datacare-blazor/Components/Pages/Dashboard.razor]
+[C:/Tools/Workspace/Auth/DataCare/Components/Pages/Dashboard.razor]
 build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xQYWdlc1xEYXNoYm9hcmQucmF6b3I=
 build_metadata.AdditionalFiles.CssScope = 
 
-[C:/Tools/Workspace/Auth/datacare-blazor/Components/Pages/EtlRunner.razor]
+[C:/Tools/Workspace/Auth/DataCare/Components/Pages/EnvironmentConfiguration.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xQYWdlc1xFbnZpcm9ubWVudENvbmZpZ3VyYXRpb24ucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Tools/Workspace/Auth/DataCare/Components/Pages/EtlRunner.razor]
 build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xQYWdlc1xFdGxSdW5uZXIucmF6b3I=
 build_metadata.AdditionalFiles.CssScope = 
 
-[C:/Tools/Workspace/Auth/datacare-blazor/Components/Pages/Logs.razor]
+[C:/Tools/Workspace/Auth/DataCare/Components/Pages/Logs.razor]
 build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xQYWdlc1xMb2dzLnJhem9y
 build_metadata.AdditionalFiles.CssScope = 
 
-[C:/Tools/Workspace/Auth/datacare-blazor/Components/Routes.razor]
+[C:/Tools/Workspace/Auth/DataCare/Components/Routes.razor]
 build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xSb3V0ZXMucmF6b3I=
 build_metadata.AdditionalFiles.CssScope = 
 
-[C:/Tools/Workspace/Auth/datacare-blazor/Components/_Imports.razor]
+[C:/Tools/Workspace/Auth/DataCare/Components/_Imports.razor]
 build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xfSW1wb3J0cy5yYXpvcg==
 build_metadata.AdditionalFiles.CssScope = 

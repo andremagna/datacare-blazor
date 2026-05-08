@@ -1,4 +1,4 @@
-@namespace DataCareLite.Components.Layout
+@namespace DataCare.Components.Layout
 @inherits LayoutComponentBase
 
 <div class="shell @(_sidebarCollapsed ? "sb-collapsed" : "")">
@@ -9,9 +9,9 @@
             {
                 <span class="sb-brand-logo">
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-                        <rect x="2"  y="2"  width="9" height="9" rx="2" fill="#4a90d9" />
-                        <rect x="13" y="2"  width="9" height="9" rx="2" fill="#4a90d9" opacity=".6" />
-                        <rect x="2"  y="13" width="9" height="9" rx="2" fill="#4a90d9" opacity=".6" />
+                        <rect x="2" y="2" width="9" height="9" rx="2" fill="#4a90d9" />
+                        <rect x="13" y="2" width="9" height="9" rx="2" fill="#4a90d9" opacity=".6" />
+                        <rect x="2" y="13" width="9" height="9" rx="2" fill="#4a90d9" opacity=".6" />
                         <rect x="13" y="13" width="9" height="9" rx="2" fill="#4a90d9" opacity=".3" />
                     </svg>
                     <span class="sb-brand-name">DataCare</span>
@@ -20,16 +20,15 @@
             else
             {
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-                    <rect x="2"  y="2"  width="9" height="9" rx="2" fill="#4a90d9" />
-                    <rect x="13" y="2"  width="9" height="9" rx="2" fill="#4a90d9" opacity=".6" />
-                    <rect x="2"  y="13" width="9" height="9" rx="2" fill="#4a90d9" opacity=".6" />
+                    <rect x="2" y="2" width="9" height="9" rx="2" fill="#4a90d9" />
+                    <rect x="13" y="2" width="9" height="9" rx="2" fill="#4a90d9" opacity=".6" />
+                    <rect x="2" y="13" width="9" height="9" rx="2" fill="#4a90d9" opacity=".6" />
                     <rect x="13" y="13" width="9" height="9" rx="2" fill="#4a90d9" opacity=".3" />
                 </svg>
             }
         </div>
 
         <ul class="sb-nav">
-            <!-- Home -->
             <li>
                 <a href="/" class="sb-link @(CurrentPage == "home" ? "sb-active" : "")">
                     <svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -42,35 +41,43 @@
                     }
                 </a>
             </li>
-
-            <!-- Logs (between Home and Dashboard) -->
+            <li>
+                <a href="/dashboard" class="sb-link @(CurrentPage == "dashboard" ? "sb-active" : "")">
+                    <svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="7" height="7" />
+                        <rect x="14" y="3" width="7" height="7" />
+                        <rect x="14" y="14" width="7" height="7" />
+                        <rect x="3" y="14" width="7" height="7" />
+                    </svg>
+                    @if (!_sidebarCollapsed)
+                    {
+                        <span>Dashboard</span>
+                    }
+                </a>
+            </li>
+            <li>
+                <a href="/environment" class="sb-link @(CurrentPage == "environment" ? "sb-active" : "")">
+                    <svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3" />
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                    </svg>
+                    @if (!_sidebarCollapsed)
+                    {
+                        <span>Env. Config</span>
+                    }
+                </a>
+            </li>
             <li>
                 <a href="/logs" class="sb-link @(CurrentPage == "logs" ? "sb-active" : "")">
                     <svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect x="3" y="3" width="18" height="18" rx="3" />
-                        <line x1="7" y1="8"  x2="17" y2="8"  stroke-linecap="round" />
+                        <line x1="7" y1="8" x2="17" y2="8" stroke-linecap="round" />
                         <line x1="7" y1="12" x2="14" y2="12" stroke-linecap="round" />
                         <line x1="7" y1="16" x2="11" y2="16" stroke-linecap="round" />
                     </svg>
                     @if (!_sidebarCollapsed)
                     {
-                        <span>Logs</span>
-                    }
-                </a>
-            </li>
-
-            <!-- Dashboard -->
-            <li>
-                <a href="/dashboard" class="sb-link @(CurrentPage == "dashboard" ? "sb-active" : "")">
-                    <svg class="sb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="3"  y="3"  width="7" height="7" />
-                        <rect x="14" y="3"  width="7" height="7" />
-                        <rect x="14" y="14" width="7" height="7" />
-                        <rect x="3"  y="14" width="7" height="7" />
-                    </svg>
-                    @if (!_sidebarCollapsed)
-                    {
-                        <span>Dashboard</span>
+                        <span>Tasks</span>
                     }
                 </a>
             </li>
@@ -95,7 +102,7 @@
 
     <div class="main-area">
         <div class="topbar">
-            <span class="topbar-title">DataCare ETL &mdash; v1.0.0 &nbsp;&middot;&nbsp; Business Integration Partners</span>
+            <span class="topbar-title">DataCare ETL &mdash; v1.0.0</span>
         </div>
         <div class="page-body">
             @Body
@@ -112,7 +119,8 @@
         {
             var uri = NavigationManager?.Uri ?? "";
             if (uri.Contains("/dashboard")) return "dashboard";
-            if (uri.Contains("/logs"))      return "logs";
+            if (uri.Contains("/environment")) return "environment";
+            if (uri.Contains("/logs")) return "logs";
             return "home";
         }
     }
