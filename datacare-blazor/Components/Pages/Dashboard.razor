@@ -42,6 +42,31 @@ else
                 <span class="dash-sub">Microsoft 365 Usage Custom Report</span>
             </div>
 
+            <!-- FIX 3: filters below download buttons -->
+                <div class="filters-row">
+                    <div class="filter-item">
+                        <label class="filter-label">Department</label>
+                        <select class="filter-select" @bind="_selectedDept" @bind:after="OnFiltersChanged">
+                            <option value="">All departments</option>
+                            @foreach (var d in _departments)
+                            {
+                                <option value="@d">@d</option>
+                            }
+                        </select>
+                    </div>
+                    <!-- FIX 5: Month filter -->
+                    <div class="filter-item">
+                        <label class="filter-label">Month</label>
+                        <select class="filter-select" @bind="_selectedYearMonth" @bind:after="OnFiltersChanged">
+                            <option value="0">All months</option>
+                            @foreach (var m in _months)
+                            {
+                                <option value="@m.YearMonth">@m.Label</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
             <!-- FIX 3+4: Download buttons top-right, filters below them -->
             <div class="dash-controls">
                 <!-- FIX 4: working download buttons -->
@@ -69,30 +94,7 @@ else
                     </button>
                 </div>
 
-                <!-- FIX 3: filters below download buttons -->
-                <div class="filters-row">
-                    <div class="filter-item">
-                        <label class="filter-label">Department</label>
-                        <select class="filter-select" @bind="_selectedDept" @bind:after="OnFiltersChanged">
-                            <option value="">All departments</option>
-                            @foreach (var d in _departments)
-                            {
-                                <option value="@d">@d</option>
-                            }
-                        </select>
-                    </div>
-                    <!-- FIX 5: Month filter -->
-                    <div class="filter-item">
-                        <label class="filter-label">Month</label>
-                        <select class="filter-select" @bind="_selectedYearMonth" @bind:after="OnFiltersChanged">
-                            <option value="0">All months</option>
-                            @foreach (var m in _months)
-                            {
-                                <option value="@m.YearMonth">@m.Label</option>
-                            }
-                        </select>
-                    </div>
-                </div>
+                
             </div>
         </div>
 
@@ -101,33 +103,69 @@ else
         <div class="cards-row mb-sm">
             <div class="dcard">
                 <div class="dcard-title">Number of users</div>
-                @BarChart("users", _data.Select(r => (r.MonthLabel, r.YearNum, (double)r.Users_Total)).ToList(), "#1B8FFF")
+                @BarChart("users", _data.Select(r => (r.MonthLabel, r.YearNum, (double)r.Users_Total)).ToList(), "#262626")
             </div>
-            <!-- FIX 2: SVG bubble map -->
+            <!-- mappa SVG paesi -->
             <div class="dcard dcard-map">
                 <div class="dcard-title">Country Involved</div>
-                <div id="azure-map" class="azure-map-container"></div>
+                <div id="country-map" class="azure-map-container"></div>
             </div>
+        </div>
+
+        <!-- EXCHANGE -->
+        <div class="section-band section-band-dark">
+            @* <span class="section-badge-ex">E</span> *@
+            <span class="section-band-title">Exchange</span>
+        </div>
+        <div class="cards-row no-mb">
+            <div class="dcard">
+                <div class="dcard-title">Items Count</div>
+                @BarChart("ex-cnt", _data.Select(r => (r.MonthLabel, r.YearNum, (double)r.Exchange_Item_Count)).ToList(), "#1B8FFF")
+            </div>
+            <div class="dcard">
+                <div class="dcard-title">Items Storage (GB)</div>
+                @BarChart("ex-gb", _data.Select(r => (r.MonthLabel, r.YearNum, r.Exchange_StorageUsedGB)).ToList(), "#1B8FFF")
+            </div>
+            <div class="dcard">
+                <div class="dcard-title">Deleted Item Count</div>
+                @BarChart("ex-cnt", _data.Select(r => (r.MonthLabel, r.YearNum, (double)r.Exchange_Deleted_Item_Count)).ToList(), "#1B8FFF")
+            </div>
+            <div class="dcard">
+                <div class="dcard-title">Deleted Item Storage (GB)</div>
+                @BarChart("ex-gb", _data.Select(r => (r.MonthLabel, r.YearNum, r.Exchange_DeletedItemSizeGB)).ToList(), "#1B8FFF")
+            </div>
+            @* <div class="dcard">
+                <div class="dcard-title">Deleted Items</div>
+                @GroupedBarChart("ex-del",
+                    _data.Select(r => (r.MonthLabel, r.YearNum)).ToList(),
+                    new List<(string, Func<DashRow, double>, string)> {
+                        ("Count",   r => (double)r.Exchange_Deleted_Item_Count, "#1B8FFF"),
+                        ("Size GB", r => r.Exchange_DeletedItemSizeGB,           "#00C9B1"),
+                    }, _data)
+            </div> *@
         </div>
 
         <!-- ONEDRIVE + SHAREPOINT -->
         <div class="two-sections-row mb-sm">
             <div class="section-col">
-                <div class="section-band section-band-blue"><span class="section-band-title">OneDrive</span></div>
+                <div class="section-band section-band-dark">
+                    @* <span class="section-badge-ex">O</span> *@
+                    <span class="section-band-title">OneDrive</span>
+                </div>
                 <div class="cards-row no-mb">
                     <div class="dcard">
                         <div class="dcard-title">File Count</div>
-                        @BarChart("od-fc", _data.Select(r => (r.MonthLabel, r.YearNum, (double)r.OneDrive_Total_File_Count)).ToList(), "#1B8FFF")
+                        @BarChart("od-fc", _data.Select(r => (r.MonthLabel, r.YearNum, (double)r.OneDrive_Total_File_Count)).ToList(), "#0b5394")
                     </div>
                     <div class="dcard">
                         <div class="dcard-title">File Storage (GB)</div>
-                        @BarChart("od-gb", _data.Select(r => (r.MonthLabel, r.YearNum, r.OneDrive_Total_StorageUsedGB)).ToList(), "#1B8FFF")
+                        @BarChart("od-gb", _data.Select(r => (r.MonthLabel, r.YearNum, r.OneDrive_Total_StorageUsedGB)).ToList(), "#0b5394")
                     </div>
                 </div>
             </div>
             <div class="section-col">
                 <div class="section-band section-band-teal">
-                    <span class="section-badge-sp">S</span>
+                    @* <span class="section-badge-sp">S</span> *@
                     <span class="section-band-title">SharePoint</span>
                 </div>
                 <div class="cards-row no-mb">
@@ -143,30 +181,7 @@ else
             </div>
         </div>
 
-        <!-- EXCHANGE -->
-        <div class="section-band section-band-dark">
-            <span class="section-badge-ex">E</span>
-            <span class="section-band-title">Exchange</span>
-        </div>
-        <div class="cards-row no-mb">
-            <div class="dcard">
-                <div class="dcard-title">Email Count</div>
-                @BarChart("ex-cnt", _data.Select(r => (r.MonthLabel, r.YearNum, (double)r.Exchange_Item_Count)).ToList(), "#1B8FFF")
-            </div>
-            <div class="dcard">
-                <div class="dcard-title">Storage (GB)</div>
-                @BarChart("ex-gb", _data.Select(r => (r.MonthLabel, r.YearNum, r.Exchange_StorageUsedGB)).ToList(), "#1B8FFF")
-            </div>
-            <div class="dcard">
-                <div class="dcard-title">Deleted Items</div>
-                @GroupedBarChart("ex-del",
-                    _data.Select(r => (r.MonthLabel, r.YearNum)).ToList(),
-                    new List<(string, Func<DashRow, double>, string)> {
-                        ("Count",   r => (double)r.Exchange_Deleted_Item_Count, "#1B8FFF"),
-                        ("Size GB", r => r.Exchange_DeletedItemSizeGB,           "#00C9B1"),
-                    }, _data)
-            </div>
-        </div>
+        
     </div>
 }
 
@@ -181,7 +196,7 @@ else
     private List<MonthItem> _months = new();
     private string _selectedDept = "";
     private int _selectedYearMonth = 0;
-    private bool _mapInitialized = false;
+    private bool _mapRendered = false;
     private string? _cs;
 
     protected override async Task OnInitializedAsync()
@@ -198,10 +213,26 @@ else
             await RenderMapAsync();
     }
 
+    private async Task RenderMapAsync()
+    {
+        if (_mapRendered) return;
+        try
+        {
+            // Small delay to ensure the DOM element exists and Leaflet is ready
+            await Task.Delay(150);
+            var pts = _countries
+                .Where(c => !string.IsNullOrWhiteSpace(c.CountryName) && c.CountryName != "Unknown")
+                .Select(c => new { name = c.CountryName, count = c.CountryCount })
+                .ToArray();
+            await JS.InvokeVoidAsync("datacareMap.init", "country-map", pts);
+            _mapRendered = true;
+        }
+        catch { }
+    }
+
     private async Task LoadDataAsync()
     {
         _loading = true;
-        _mapInitialized = false;
 
         // Refresh connection string if ETL just ran
         if (!string.IsNullOrWhiteSpace(State.LastConnectionString))
@@ -255,24 +286,9 @@ else
         finally { _loading = false; }
     }
 
-    private async Task RenderMapAsync()
-    {
-        if (_mapInitialized) return;
-        try
-        {
-            var pts = _countries
-                .Where(c => !string.IsNullOrWhiteSpace(c.CountryName) && c.CountryName != "Unknown")
-                .Select(c => new { name = c.CountryName, count = c.CountryCount })
-                .ToArray();
-            await JS.InvokeVoidAsync("datacareMap.init", "azure-map", pts);
-            _mapInitialized = true;
-        }
-        catch { }
-    }
-
     private async Task OnFiltersChanged()
     {
-        _mapInitialized = false;
+        _mapRendered = false;
         await LoadDataAsync();
         StateHasChanged();
     }
@@ -418,7 +434,7 @@ else
             b.AddAttribute(0, "x", Fmt(bX + barW / 2)); b.AddAttribute(0, "y", Fmt(bY - 5));
             b.AddAttribute(0, "text-anchor", "middle"); b.AddAttribute(0, "fill", "#c8daf0");
             b.AddAttribute(0, "font-size", "11"); b.AddAttribute(0, "font-weight", "600");
-            b.AddAttribute(0, "font-family", "'Segoe UI',sans-serif");
+            b.AddAttribute(0, "font-family", "'Open Sans',sans-serif");
             b.AddContent(0, FormatVal(v));
             b.CloseElement();
 
@@ -547,7 +563,7 @@ else
             b.OpenElement(0, "text");
             b.AddAttribute(0, "x", (PL - 6).ToString()); b.AddAttribute(0, "y", Fmt(yp + 4));
             b.AddAttribute(0, "text-anchor", "end"); b.AddAttribute(0, "fill", "#6a8aaa");
-            b.AddAttribute(0, "font-size", "10"); b.AddAttribute(0, "font-family", "'Segoe UI',monospace");
+            b.AddAttribute(0, "font-size", "10"); b.AddAttribute(0, "font-family", "'Open Sans',monospace");
             b.AddContent(0, FormatVal(t));
             b.CloseElement();
         }
@@ -571,7 +587,7 @@ else
         b.OpenElement(0, "text");
         b.AddAttribute(0, "x", Fmt(cx)); b.AddAttribute(0, "y", (bl + 16).ToString());
         b.AddAttribute(0, "text-anchor", "middle"); b.AddAttribute(0, "fill", "#8ab0cc");
-        b.AddAttribute(0, "font-size", "11"); b.AddAttribute(0, "font-family", "'Segoe UI',sans-serif");
+        b.AddAttribute(0, "font-size", "11"); b.AddAttribute(0, "font-family", "'Open Sans',sans-serif");
         b.AddContent(0, month.Length > 3 ? month[..3] : month);
         b.CloseElement();
         if (showYear)
@@ -701,7 +717,7 @@ else
     .section-band-dark  { background:#090b14; }
     .section-band-blue  { background:#070d1a; }
     .section-band-teal  { background:#060f12; }
-    .section-band-title { font-size:.75rem; font-weight:700; color:#8aaccc;
+    .section-band-title { font-size:.95rem; font-weight:700; color:#8aaccc;
                           letter-spacing:.06em; text-transform:uppercase; }
     .section-badge-sp   { width:15px;height:15px;border-radius:3px;background:#00a090;
                           color:#fff;font-size:.6rem;font-weight:700;
@@ -722,9 +738,23 @@ else
     .two-sections-row { display:flex;gap:.5rem;margin-bottom:.5rem; }
     .section-col      { flex:1;min-width:0; }
 
-    /* FIX 2: map container — enough height so SVG is visible */
-    .azure-map-container { width:100%;height:230px;border-radius:4px;overflow:hidden;
+    /* map container — Leaflet */
+    .azure-map-container { width:100%; height:260px; border-radius:6px; overflow:hidden;
                            background:#0a0f1e; }
+
+    /* custom Leaflet tooltip */
+    .leaflet-dc-tip {
+        background: #0d1628 !important;
+        border: 1px solid #2a4a7a !important;
+        border-radius: 6px !important;
+        color: #c8e4ff !important;
+        font-family: 'Open Sans', sans-serif !important;
+        font-size: .8rem !important;
+        padding: 5px 10px !important;
+        box-shadow: 0 4px 14px rgba(0,0,0,.6) !important;
+        white-space: nowrap;
+    }
+    .leaflet-dc-tip::before { display:none !important; }
 
     /* bar hover */
     .bar-g { cursor:pointer; }
@@ -735,7 +765,7 @@ else
     .chart-tooltip  { position:fixed;z-index:9999;background:#0d1628;
                       border:1px solid #2a4a7a;border-radius:6px;
                       padding:6px 12px;font-size:.82rem;
-                      font-family:'Segoe UI',sans-serif;color:#c8e4ff;
+                      font-family:'Open Sans',sans-serif;color:#c8e4ff;
                       pointer-events:none;white-space:nowrap;
                       box-shadow:0 4px 18px rgba(0,0,0,.55); }
 

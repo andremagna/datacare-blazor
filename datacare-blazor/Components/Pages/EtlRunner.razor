@@ -58,8 +58,9 @@
     
     <!-- ── Page header: title + Variable button ─────────────────────── -->
     <div class="section-header-row">
+        
         <div>
-            <h1 class="dash-title">ETL Runner</h1>
+            <h1 class="dash-title" tabindex="-1" style="outline:none!important;border:none!important;box-shadow:none!important;">ETL Runner</h1>
             <span class="dash-sub">Configure and launch data extraction</span>
         </div>
         @if (_envConfigs.Count > 0)
@@ -76,7 +77,7 @@
     </div>
 
     <div class="config-panel">
-        <div class="sdiv section-inline">Azure AD / Graph</div>
+        <div class="sdiv section-inline">ENTRA ID</div>
         <div class="g3">      
             <div>
                 <div class="fl">Tenant ID</div>
@@ -110,7 +111,7 @@
             </div>
         </div>
 
-        <div class="config-divider"></div>
+        @* <div class="config-divider"></div> *@
 
         <div class="sdiv config-section-label">SQL Server</div>
         <div class="g2">
@@ -124,9 +125,9 @@
             </div>
         </div>
 
-        <div class="config-divider"></div>
+        @* <div class="config-divider"></div> *@
 
-        <div class="sdiv config-section-label">Execution</div>
+        <div class="sdiv config-section-label">Report days</div>
         <div class="g1">
             <div>
                 <div class="fl">Report period</div>
@@ -386,12 +387,12 @@
     .config-panel {
         background: #080e1c;
         border: 1px solid #1e3050;
-        border-radius: 10px;
-        padding: 1.1rem 1.25rem;
-        margin-bottom: 1rem;
+        border-radius: 12px;
+        padding: 1.4rem 1.6rem;
+        margin-bottom: 1.2rem;
         display: flex;
         flex-direction: column;
-        gap: .75rem;
+        gap: 1rem;
     }
     .config-divider {
         border: none;
