@@ -1,0 +1,269 @@
+@page "/downloads"
+@using DataCare.Models
+@using DataCare.Services
+@using Microsoft.Data.SqlClient
+@inject EtlStateService State
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>DataCare – Downloads</PageTitle>
+
+@if (_loading)
+{
+    <div class="logs-empty">
+        <div class="dash-empty-icon">
+            <svg viewBox="0 0 64 64" fill="none" width="48" height="48">
+                <circle cx="32" cy="32" r="28" stroke="#1a3a6b" stroke-width="3" opacity=".4"/>
+                <path d="M32 16v16l10 6" stroke="#4a90d9" stroke-width="3" stroke-linecap="round"/>
+            </svg>
+        </div>
+        <p class="dash-empty-msg">Loading downloads...</p>
+    </div>
+}
+else if (!string.IsNullOrEmpty(_loadError))
+{
+    <div class="logs-empty">
+        <p class="dash-empty-msg" style="color:#e07070;">Errore caricamento: @_loadError</p>
+    </div>
+}
+else if (!_hasData)
+{
+    <div class="logs-empty">
+        <div class="dash-empty-icon">
+            <svg viewBox="0 0 64 64" fill="none" width="56" height="56">
+                <path d="M32 10v28M20 28l12 14 12-14" stroke="#4a90d9" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                <rect x="10" y="48" width="44" height="6" rx="3" fill="#1a3a6b" opacity=".4"/>
+            </svg>
+        </div>
+        <h2 class="dash-empty-title">No downloads yet</h2>
+        <p class="dash-empty-msg">Download a PDF, CSV or JSON report from the <a href="/dashboard">Dashboard</a> to see the history here.</p>
+    </div>
+}
+else
+{
+    <div class="logs-page">
+        <div class="dash-header">
+            <div>
+                <h1 class="dash-title">DataCare Download History</h1>
+                <span class="dash-sub">Search for your downloaded files</span>
+            </div>
+            <div class="logs-filter-row">
+                <input class="logs-search"
+                       type="text"
+                       placeholder="Search by file name, type…"
+                       @bind="_search"
+                       @bind:event="oninput"
+                       @bind:after="() => _page = 1" />
+            </div>
+        </div>
+
+        <div class="env-table-wrap">
+            <table class="env-table">
+                <thead>
+                    <tr>
+                        <th @onclick="@(() => SortBy("Id"))" class="sortable @(SortClass("Id"))">#</th>
+                        <th @onclick="@(() => SortBy("DateTimeDownload"))" class="sortable @(SortClass("DateTimeDownload"))">Date</th>
+                        <th @onclick="@(() => SortBy("FileName"))" class="sortable @(SortClass("FileName"))">File Name</th>
+                        <th @onclick="@(() => SortBy("FileSizeBytes"))" class="sortable @(SortClass("FileSizeBytes"))">File Size</th>
+                        <th @onclick="@(() => SortBy("FileType"))" class="sortable @(SortClass("FileType"))">File Type</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var r in PagedRows())
+                    {
+                        <tr>
+                            <td class="log-num dl-id">@r.Id</td>
+                            <td class="log-date">@r.DateTimeDownload.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                            <td class="dl-filename">@r.FileName</td>
+                            <td class="log-num dl-size">@FormatSize(r.FileSizeBytes)</td>
+                            <td>
+                                <span class="dl-badge @FileTypeBadge(r.FileType)">
+                                    @r.FileType.Replace("application/","").Replace("text/","").ToUpperInvariant()
+                                </span>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="logs-footer">
+            <span>@_all.Count totali &nbsp;·&nbsp; @Filtered().Count() filtrati &nbsp;·&nbsp; Pagina @_page di @TotalPages</span>
+            <div class="pagination">
+                <button class="pg-btn" @onclick="PrevPage" disabled="@(_page <= 1)">‹ Prec</button>
+                @for (int p = 1; p <= TotalPages; p++)
+                {
+                    var pCopy = p;
+                    <button class="pg-btn @(pCopy == _page ? "pg-active" : "")" @onclick="@(() => GoToPage(pCopy))">@pCopy</button>
+                }
+                <button class="pg-btn" @onclick="NextPage" disabled="@(_page >= TotalPages)">Succ ›</button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+.logs-page { padding: 1.5rem 2rem; }
+.logs-empty { display:flex; flex-direction:column; align-items:center; justify-content:center;
+              min-height:55vh; gap:1rem; text-align:center; }
+.logs-filter-row { display:flex; gap:.75rem; align-items:center; }
+.logs-search {
+    background: #10101f; border: 1.5px solid #2a3a5a; color: #c8d0e7;
+    border-radius: 7px; padding: .42rem .85rem; font-size: .82rem;
+    width: 300px; outline: none; transition: border-color .18s, box-shadow .18s;
+}
+.logs-search::placeholder { color: #445; }
+.logs-search:focus { border-color: #1B8FFF; box-shadow: 0 0 0 3px rgba(27,143,255,.18); }
+
+.env-table-wrap { overflow-x:auto; border-radius:10px; border:1px solid #1e1e38; background:#10101f; }
+.env-table { width:100%; border-collapse:collapse; font-size:.82rem; }
+.env-table thead tr { background:#151528; }
+.env-table th { padding:.65rem .9rem; color:#7090c0; font-weight:600; text-align:left;
+                border-bottom:1px solid #1e1e38; white-space:nowrap; user-select:none; }
+.env-table th.sortable { cursor:pointer; }
+.env-table th.sortable:hover { color:#a0c0f0; }
+.env-table th.sort-asc::after  { content:" ▲"; font-size:.7em; }
+.env-table th.sort-desc::after { content:" ▼"; font-size:.7em; }
+.env-table td { padding:.6rem .9rem; border-bottom:1px solid #1a1a30; color:#b0bcd4; vertical-align:middle; }
+.env-table tr:last-child td { border-bottom:none; }
+.env-table tr:hover td { background:#13132a; }
+
+.dl-id      { color:#445; font-family:monospace; font-size:.75rem; }
+.log-date   { white-space:nowrap; color:#778; font-family:monospace; }
+.log-num    { text-align:right; font-family:monospace; }
+.dl-filename{ font-family:monospace; font-size:.78rem; color:#9ab8d8; word-break:break-all; }
+.dl-storage { font-size:.74rem; color:#556; word-break:break-all; }
+.dl-size    { color:#7dc97d; font-family:monospace; }
+
+.dl-badge { display:inline-block; padding:.15rem .55rem; border-radius:4px;
+            font-size:.72rem; font-weight:700; letter-spacing:.04em; }
+.dl-pdf  { background:#2a1010; color:#e07070; }
+.dl-csv  { background:#0e2a1a; color:#4caf90; }
+.dl-json { background:#12182a; color:#4a90d9; }
+.dl-other{ background:#1e1e30; color:#8899aa; }
+
+.logs-footer { padding:.6rem 1rem; border-top:1px solid #1e1e38;
+               display:flex; align-items:center; justify-content:space-between;
+               flex-wrap:wrap; gap:.5rem; }
+.logs-footer span { color:#445; font-size:.75rem; }
+.pagination { display:flex; gap:.3rem; flex-wrap:wrap; align-items:center; }
+.pg-btn { background:#151528; border:1px solid #1e1e38; color:#556;
+          border-radius:5px; padding:.22rem .6rem;
+          font-size:.75rem; cursor:pointer; transition:background .15s, color .15s; min-width:28px; }
+.pg-btn:hover:not(:disabled) { background:#1e2a44; color:#a0c0f0; }
+.pg-btn:disabled { opacity:.35; cursor:not-allowed; }
+.pg-btn.pg-active { background:#1b3464; color:#4a90d9; border-color:#4a90d9; font-weight:700; }
+</style>
+
+@code {
+    private List<DownloadFileEntry> _all = new();
+    private bool _loading = true;
+    private bool _hasData = false;
+    private string _search = string.Empty;
+    private string _sortCol = "DateTimeDownload";
+    private bool _sortDesc = true;
+
+    private const int PageSize = 20;
+    private int _page = 1;
+    private int TotalPages => Math.Max(1, (int)Math.Ceiling(Filtered().Count() / (double)PageSize));
+    private IEnumerable<DownloadFileEntry> PagedRows() => Filtered().Skip((_page - 1) * PageSize).Take(PageSize);
+    private void GoToPage(int p) { _page = Math.Clamp(p, 1, TotalPages); }
+    private void PrevPage() => GoToPage(_page - 1);
+    private void NextPage() => GoToPage(_page + 1);
+
+    protected override async Task OnInitializedAsync()
+    {
+        State.OnChanged += OnStateChanged;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            var cs = State.LastConnectionString;
+            if (string.IsNullOrWhiteSpace(cs)) { _hasData = false; return; }
+
+            // ensure table exists
+            await using var conn = new SqlConnection(cs);
+            await conn.OpenAsync();
+            await using (var ddlCmd = new SqlCommand(TableDdl.All["DownloadFile"], conn))
+                await ddlCmd.ExecuteNonQueryAsync();
+
+            var list = new List<DownloadFileEntry>();
+            await using var cmd = new SqlCommand(TableDdl.DownloadFileSelectAll, conn);
+            await using var rdr = await cmd.ExecuteReaderAsync();
+            while (await rdr.ReadAsync())
+                list.Add(new DownloadFileEntry
+                {
+                    Id               = rdr.GetInt32(0),
+                    DateTimeDownload = rdr.GetDateTime(1),
+                    FileType         = rdr.IsDBNull(2) ? "" : rdr.GetString(2),
+                    FileName         = rdr.IsDBNull(3) ? "" : rdr.GetString(3),
+                    FileStorage      = rdr.IsDBNull(4) ? "" : rdr.GetString(4),
+                    FileSizeBytes    = rdr.IsDBNull(5) ? null : rdr.GetInt64(5),
+                });
+            _all = list;
+            _hasData = _all.Count > 0;
+        }
+        catch (Exception ex) { _hasData = false; _loadError = ex.Message; }
+        finally { _loading = false; }
+    }
+
+    private string _loadError = string.Empty;
+
+    private IEnumerable<DownloadFileEntry> Filtered()
+    {
+        var q = _all.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(_search))
+        {
+            var s = _search.Trim().ToLowerInvariant();
+            q = q.Where(r => r.FileName.ToLower().Contains(s)
+                          || r.FileType.ToLower().Contains(s)
+                          || r.FileStorage.ToLower().Contains(s));
+        }
+        q = _sortCol switch
+        {
+            "Id"               => _sortDesc ? q.OrderByDescending(r => r.Id)               : q.OrderBy(r => r.Id),
+            "FileType"         => _sortDesc ? q.OrderByDescending(r => r.FileType)         : q.OrderBy(r => r.FileType),
+            "FileName"         => _sortDesc ? q.OrderByDescending(r => r.FileName)         : q.OrderBy(r => r.FileName),
+            _                  => _sortDesc ? q.OrderByDescending(r => r.DateTimeDownload) : q.OrderBy(r => r.DateTimeDownload),
+        };
+        return q;
+    }
+
+    private void SortBy(string col)
+    {
+        if (_sortCol == col) _sortDesc = !_sortDesc;
+        else { _sortCol = col; _sortDesc = true; }
+        _page = 1;
+    }
+
+    private string SortClass(string col) =>
+        _sortCol == col ? (_sortDesc ? "sort-desc" : "sort-asc") : "";
+
+    private static string FileTypeBadge(string mime) => mime switch
+    {
+        "application/pdf" => "dl-pdf",
+        "text/csv"        => "dl-csv",
+        "application/json"=> "dl-json",
+        _                 => "dl-other"
+    };
+
+    private static string FormatSize(long? bytes)
+    {
+        if (bytes == null) return "—";
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+        return $"{bytes / (1024.0 * 1024):F2} MB";
+    }
+
+    private void OnStateChanged() => _ = InvokeAsync(async () =>
+    {
+        await LoadAsync();
+        StateHasChanged();
+    });
+
+    public void Dispose() => State.OnChanged -= OnStateChanged;
+}

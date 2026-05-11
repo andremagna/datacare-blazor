@@ -34,6 +34,10 @@ build_metadata.AdditionalFiles.CssScope =
 build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xQYWdlc1xEYXNoYm9hcmQucmF6b3I=
 build_metadata.AdditionalFiles.CssScope = 
 
+[C:/Tools/Workspace/Auth/DataCare/Components/Pages/Downloads.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xQYWdlc1xEb3dubG9hZHMucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
 [C:/Tools/Workspace/Auth/DataCare/Components/Pages/EnvironmentConfiguration.razor]
 build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xQYWdlc1xFbnZpcm9ubWVudENvbmZpZ3VyYXRpb24ucmF6b3I=
 build_metadata.AdditionalFiles.CssScope = 
@@ -44,6 +48,10 @@ build_metadata.AdditionalFiles.CssScope =
 
 [C:/Tools/Workspace/Auth/DataCare/Components/Pages/Logs.razor]
 build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xQYWdlc1xMb2dzLnJhem9y
+build_metadata.AdditionalFiles.CssScope = 
+
+[C:/Tools/Workspace/Auth/DataCare/Components/Pages/Scheduling.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xQYWdlc1xTY2hlZHVsaW5nLnJhem9y
 build_metadata.AdditionalFiles.CssScope = 
 
 [C:/Tools/Workspace/Auth/DataCare/Components/Routes.razor]

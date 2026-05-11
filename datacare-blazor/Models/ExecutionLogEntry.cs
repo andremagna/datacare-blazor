@@ -34,6 +34,49 @@ public record TerminalLine(string Message, TerminalLevel Level, DateTime Timesta
     };
 }
 
+/// <summary>A file download event saved in dbo.DownloadFile.</summary>
+public class DownloadFileEntry
+{
+    public int Id { get; set; }
+    public DateTime DateTimeDownload { get; set; }
+    /// <summary>Raw file content (bytes) stored as VARBINARY in DB.</summary>
+    public byte[]? File { get; set; }
+    /// <summary>MIME type: application/pdf | text/csv | application/json</summary>
+    public string FileType { get; set; } = string.Empty;
+    public string FileName { get; set; } = string.Empty;
+    /// <summary>Storage path or identifier (e.g. "dbo.DownloadFile / BinaryColumn").</summary>
+    public string FileStorage { get; set; } = string.Empty;
+    public long? FileSizeBytes { get; set; }
+}
+
+/// <summary>A Windows Task Scheduler job saved in dbo.TaskSchedulerJob.</summary>
+public class TaskSchedulerJob
+{
+    public int Id { get; set; }
+    public string JobName { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    /// <summary>Comma-separated days of week: Mon,Tue,Wed,Thu,Fri,Sat,Sun</summary>
+    public string DaysOfWeek { get; set; } = string.Empty;
+    /// <summary>Time of day HH:mm (24h)</summary>
+    public string StartTime { get; set; } = string.Empty;
+    /// <summary>ENABLED | DISABLED</summary>
+    public string Status { get; set; } = "ENABLED";
+    /// <summary>Full path to the executable or script</summary>
+    public string ProgramPath { get; set; } = string.Empty;
+    public string? Arguments { get; set; }
+    /// <summary>Windows Task Scheduler folder path, e.g. \DataCare\</summary>
+    public string TaskFolder { get; set; } = @"\DataCare\";
+    /// <summary>Run-as user (e.g. SYSTEM or a service account)</summary>
+    public string RunAsUser { get; set; } = "SYSTEM";
+    public DateTime CreatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
+    /// <summary>Last time the job was actually triggered by Task Scheduler</summary>
+    public DateTime? LastRunAt { get; set; }
+    /// <summary>SUCCESS | FAILED | NEVER</summary>
+    public string LastRunStatus { get; set; } = "NEVER";
+    public string? LastRunMessage { get; set; }
+}
+
 /// <summary>An environment configuration saved in dbo.EnvironmentConfiguration.</summary>
 public class EnvironmentConfig
 {

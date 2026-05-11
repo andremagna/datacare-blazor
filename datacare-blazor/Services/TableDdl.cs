@@ -148,8 +148,88 @@ public static class TableDdl
             CREATE TABLE dbo.PowerBICountryOrRegion (
                 Department   NVARCHAR(255),
                 CountryName  NVARCHAR(MAX),
-                CountryCount INT);"
+                CountryCount INT);",
+
+        ["DownloadFile"] = @"
+            IF OBJECT_ID('dbo.DownloadFile','U') IS NULL
+            CREATE TABLE dbo.DownloadFile (
+                Id                INT IDENTITY(1,1) PRIMARY KEY,
+                DateTimeDownload  DATETIME2 DEFAULT SYSDATETIME(),
+                [File]            VARBINARY(MAX) NULL,
+                FileType          NVARCHAR(100) NOT NULL,
+                FileName          NVARCHAR(500) NOT NULL,
+                FileStorage       NVARCHAR(500) NOT NULL);",
+
+        ["TaskSchedulerJob"] = @"
+            IF OBJECT_ID('dbo.TaskSchedulerJob','U') IS NULL
+            CREATE TABLE dbo.TaskSchedulerJob (
+                Id               INT IDENTITY(1,1) PRIMARY KEY,
+                JobName          NVARCHAR(200) NOT NULL,
+                Description      NVARCHAR(1000) NULL,
+                DaysOfWeek       NVARCHAR(100) NOT NULL,
+                StartTime        NVARCHAR(10)  NOT NULL,
+                Status           NVARCHAR(50)  NOT NULL DEFAULT 'ENABLED',
+                ProgramPath      NVARCHAR(1000) NOT NULL,
+                Arguments        NVARCHAR(1000) NULL,
+                TaskFolder       NVARCHAR(500)  NOT NULL DEFAULT '\DataCare\',
+                RunAsUser        NVARCHAR(200)  NOT NULL DEFAULT 'SYSTEM',
+                CreatedAt        DATETIME2 DEFAULT SYSDATETIME(),
+                UpdatedAt        DATETIME2 NULL,
+                LastRunAt        DATETIME2 NULL,
+                LastRunStatus    NVARCHAR(50) NOT NULL DEFAULT 'NEVER',
+                LastRunMessage   NVARCHAR(MAX) NULL,
+                CONSTRAINT UQ_TaskSchedulerJobName UNIQUE (JobName));"
     };
+
+    // ── DownloadFile queries ──────────────────────────────────────────────
+
+    public const string DownloadFileInsert = @"
+        INSERT INTO dbo.DownloadFile (DateTimeDownload, [File], FileType, FileName, FileStorage)
+        VALUES (SYSDATETIME(), @File, @FileType, @FileName, @FileStorage);";
+
+    public const string DownloadFileSelectAll = @"
+        SELECT Id, DateTimeDownload, FileType, FileName, FileStorage,
+               DATALENGTH([File]) AS FileSizeBytes
+        FROM dbo.DownloadFile
+        ORDER BY DateTimeDownload DESC;";
+
+    // ── TaskSchedulerJob queries ──────────────────────────────────────────
+
+    public const string TaskSchedulerJobSelectAll = @"
+        SELECT Id, JobName, Description, DaysOfWeek, StartTime, Status,
+               ProgramPath, Arguments, TaskFolder, RunAsUser,
+               CreatedAt, UpdatedAt, LastRunAt, LastRunStatus, LastRunMessage
+        FROM dbo.TaskSchedulerJob
+        ORDER BY JobName;";
+
+    public static string TaskSchedulerJobInsert(
+        string jobName, string description, string daysOfWeek, string startTime,
+        string status, string programPath, string? arguments,
+        string taskFolder, string runAsUser)
+    {
+        string argsVal = arguments == null ? "NULL" : $"N'{Esc(arguments)}'";
+        return $"INSERT INTO dbo.TaskSchedulerJob " +
+               $"(JobName, Description, DaysOfWeek, StartTime, Status, ProgramPath, Arguments, TaskFolder, RunAsUser) " +
+               $"VALUES (N'{Esc(jobName)}', N'{Esc(description)}', N'{Esc(daysOfWeek)}', N'{Esc(startTime)}', " +
+               $"N'{Esc(status)}', N'{Esc(programPath)}', {argsVal}, N'{Esc(taskFolder)}', N'{Esc(runAsUser)}');";
+    }
+
+    public static string TaskSchedulerJobUpdate(
+        int id, string jobName, string description, string daysOfWeek, string startTime,
+        string status, string programPath, string? arguments,
+        string taskFolder, string runAsUser)
+    {
+        string argsVal = arguments == null ? "NULL" : $"N'{Esc(arguments)}'";
+        return $"UPDATE dbo.TaskSchedulerJob SET " +
+               $"JobName=N'{Esc(jobName)}', Description=N'{Esc(description)}', " +
+               $"DaysOfWeek=N'{Esc(daysOfWeek)}', StartTime=N'{Esc(startTime)}', " +
+               $"Status=N'{Esc(status)}', ProgramPath=N'{Esc(programPath)}', " +
+               $"Arguments={argsVal}, TaskFolder=N'{Esc(taskFolder)}', RunAsUser=N'{Esc(runAsUser)}', " +
+               $"UpdatedAt=SYSDATETIME() WHERE Id={id};";
+    }
+
+    public static string TaskSchedulerJobDelete(int id) =>
+        $"DELETE FROM dbo.TaskSchedulerJob WHERE Id={id};";
 
     // Mirrors the INSERT logic of CreatePowerBIDataModelHistory from the PS script.
     // Uses @ExecutionId declared by the caller.

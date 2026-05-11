@@ -1,0 +1,797 @@
+@page "/scheduling"
+@using DataCare.Models
+@using DataCare.Services
+@using Microsoft.Data.SqlClient
+@inject EtlStateService State
+@inject IJSRuntime JS
+@implements IDisposable
+
+<PageTitle>DataCare – Scheduling</PageTitle>
+
+@if (_loading)
+{
+    <div class="logs-empty">
+        <div class="dash-empty-icon">
+            <svg viewBox="0 0 64 64" fill="none" width="48" height="48">
+                <circle cx="32" cy="32" r="28" stroke="#1a3a6b" stroke-width="3" opacity=".4"/>
+                <path d="M32 16v16l10 6" stroke="#4a90d9" stroke-width="3" stroke-linecap="round"/>
+            </svg>
+        </div>
+        <p class="dash-empty-msg">Loading scheduling...</p>
+    </div>
+}
+else
+{
+    <div class="logs-page">
+        <div class="dash-header">
+            <div>
+                <h1 class="dash-title">DataCare Scheduling</h1>
+                <span class="dash-sub">Windows Task Scheduler integration</span>
+            </div>
+            <div class="sched-header-actions">
+                <button class="sched-btn-new" @onclick="OpenNewForm">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                    </svg>
+                    Nuovo Job
+                </button>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_feedbackMsg))
+        {
+            <div class="sched-feedback @(_feedbackOk ? "fb-ok" : "fb-err")">@_feedbackMsg</div>
+        }
+
+        <!-- ── Form dialog overlay ────────────────────────────────── -->
+        @if (_showForm)
+        {
+            <div class="sched-overlay" @onclick="CloseForm">
+                <div class="sched-dialog" @onclick:stopPropagation="true">
+                    <div class="sched-dialog-header">
+                        <h2>@(_editId.HasValue ? "Modifica Job" : "Nuovo Job")</h2>
+                        <button class="sched-close-btn" @onclick="CloseForm">✕</button>
+                    </div>
+
+                    <div class="sched-form">
+                        <div class="sf-row">
+                            <label>Job Name *</label>
+                            <input class="sf-input" @bind="_f.JobName" placeholder="DataCare_ETL_Daily" />
+                        </div>
+                        <div class="sf-row">
+                            <label>Description</label>
+                            <input class="sf-input" @bind="_f.Description" placeholder="Breve descrizione del job" />
+                        </div>
+                        <div class="sf-row">
+                            <label>Task Folder</label>
+                            <input class="sf-input" @bind="_f.TaskFolder" placeholder="\DataCare\" />
+                        </div>
+                        <div class="sf-row">
+                            <label>Program / Script *</label>
+                            <input class="sf-input" @bind="_f.ProgramPath" placeholder="C:\DataCare\DataCare.exe" />
+                        </div>
+                        <div class="sf-row">
+                            <label>Arguments</label>
+                            <input class="sf-input" @bind="_f.Arguments" placeholder="--run-etl --env Production" />
+                        </div>
+                        <div class="sf-row">
+                            <label>Run As User</label>
+                            <input class="sf-input" @bind="_f.RunAsUser" placeholder="SYSTEM" />
+                        </div>
+
+                        <div class="sf-row">
+                            <label>Giorni della settimana *</label>
+                            <div class="days-grid">
+                                @foreach (var day in _allDays)
+                                {
+                                    var d = day;
+                                    <label class="day-toggle @(_selectedDays.Contains(d) ? "day-on" : "")">
+                                        <input type="checkbox" style="display:none"
+                                               checked="@_selectedDays.Contains(d)"
+                                               @onchange="@(() => ToggleDay(d))" />
+                                        @d
+                                    </label>
+                                }
+                            </div>
+                        </div>
+
+                        <div class="sf-row">
+                            <label>Orario di avvio *</label>
+                            <input class="sf-input sf-time" type="time"
+                                   value="@_f.StartTime"
+                                   @onchange="@(e => _f.StartTime = e.Value?.ToString() ?? string.Empty)" />
+                        </div>
+
+                        <div class="sf-row">
+                            <label>Stato</label>
+                            <select class="sf-input" @bind="_f.Status">
+                                <option value="ENABLED">ENABLED</option>
+                                <option value="DISABLED">DISABLED</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(_formError))
+                    {
+                        <div class="sched-form-err">@_formError</div>
+                    }
+
+                    <div class="sched-dialog-footer">
+                        <button class="sf-btn-cancel" @onclick="CloseForm">Annulla</button>
+                        <button class="sf-btn-save" @onclick="SaveJob" disabled="@_saving">
+                            @(_saving ? "Salvataggio…" : _editId.HasValue ? "Aggiorna" : "Crea Job")
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- ── Table ─────────────────────────────────────────────── -->
+        @if (_all.Count == 0)
+        {
+            <div class="logs-empty" style="min-height:40vh;">
+                <div class="dash-empty-icon">
+                    <svg viewBox="0 0 64 64" fill="none" width="48" height="48">
+                        <circle cx="32" cy="12" r="8" stroke="#1a3a6b" stroke-width="2.5" opacity=".5"/>
+                        <path d="M12 56a20 20 0 0 1 40 0" stroke="#4a90d9" stroke-width="2.5" stroke-linecap="round" opacity=".4"/>
+                    </svg>
+                </div>
+                <p class="dash-empty-msg">Nessun job configurato. Clicca <strong>Nuovo Job</strong> per iniziare.</p>
+            </div>
+        }
+        else
+        {
+            <div class="sched-filter-row">
+                <input class="logs-search" type="text" placeholder="Cerca per nome, cartella, stato…"
+                       @bind="_search" @bind:event="oninput" @bind:after="() => _page = 1" />
+            </div>
+
+            <div class="env-table-wrap" style="margin-top:.75rem;">
+                <table class="env-table">
+                    <thead>
+                        <tr>
+                            <th @onclick="@(() => SortBy("JobName"))" class="sortable @(SortClass("JobName"))">Job Name</th>
+                            <th>Descrizione</th>
+                            <th @onclick="@(() => SortBy("DaysOfWeek"))" class="sortable @(SortClass("DaysOfWeek"))">Giorni</th>
+                            <th @onclick="@(() => SortBy("StartTime"))" class="sortable @(SortClass("StartTime"))">Orario</th>
+                            <th @onclick="@(() => SortBy("Status"))" class="sortable @(SortClass("Status"))">Stato</th>
+                            <th>Last Run</th>
+                            <th>Last Status</th>
+                            <th>Azioni</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var r in PagedRows())
+                        {
+                            <tr>
+                                <td class="sched-name">
+                                    <span title="@r.TaskFolder">@r.JobName</span>
+                                    <span class="sched-folder">@r.TaskFolder</span>
+                                </td>
+                                <td class="sched-desc">@(string.IsNullOrWhiteSpace(r.Description) ? "—" : r.Description)</td>
+                                <td class="sched-days">@FormatDays(r.DaysOfWeek)</td>
+                                <td class="log-date">@r.StartTime</td>
+                                <td>
+                                    <span class="log-badge @(r.Status == "ENABLED" ? "badge-ok" : "badge-warn")">
+                                        @r.Status
+                                    </span>
+                                </td>
+                                <td class="log-date">
+                                    @(r.LastRunAt.HasValue ? r.LastRunAt.Value.ToString("yyyy-MM-dd HH:mm") : "—")
+                                </td>
+                                <td>
+                                    @if (r.LastRunStatus != "NEVER")
+                                    {
+                                        <span class="log-badge @(r.LastRunStatus == "SUCCESS" ? "badge-ok" : "badge-err")">
+                                            @r.LastRunStatus
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span style="color:#445">—</span>
+                                    }
+                                </td>
+                                <td class="sched-actions">
+                                    <button class="sched-act-btn sched-act-edit" title="Modifica"
+                                            @onclick="@(() => OpenEditForm(r))">
+                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                        </svg>
+                                    </button>
+                                    <button class="sched-act-btn sched-act-del" title="Elimina"
+                                            @onclick="@(() => DeleteJob(r))">
+                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <polyline points="3 6 5 6 21 6"/>
+                                            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                                            <path d="M10 11v6M14 11v6"/>
+                                            <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+                                        </svg>
+                                    </button>
+                                    <button class="sched-act-btn sched-act-run" title="Esegui ora (schtasks /run)"
+                                            @onclick="@(() => RunNow(r))">
+                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <polygon points="5 3 19 12 5 21 5 3"/>
+                                        </svg>
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="logs-footer">
+                <span>@_all.Count totali &nbsp;·&nbsp; @Filtered().Count() filtrati &nbsp;·&nbsp; Pagina @_page di @TotalPages</span>
+                <div class="pagination">
+                    <button class="pg-btn" @onclick="PrevPage" disabled="@(_page <= 1)">‹ Prec</button>
+                    @for (int p = 1; p <= TotalPages; p++)
+                    {
+                        var pCopy = p;
+                        <button class="pg-btn @(pCopy == _page ? "pg-active" : "")" @onclick="@(() => GoToPage(pCopy))">@pCopy</button>
+                    }
+                    <button class="pg-btn" @onclick="NextPage" disabled="@(_page >= TotalPages)">Succ ›</button>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+<style>
+.logs-page { padding: 1.5rem 2rem; }
+.logs-empty { display:flex; flex-direction:column; align-items:center; justify-content:center;
+              min-height:55vh; gap:1rem; text-align:center; }
+
+/* Header */
+.sched-header-actions { display:flex; align-items:center; }
+.sched-btn-new {
+    display:inline-flex; align-items:center; gap:.4rem;
+    background:#1b3464; color:#4a90d9; border:1px solid #4a90d9;
+    border-radius:7px; padding:.4rem 1rem; font-size:.82rem; font-weight:600;
+    cursor:pointer; transition:background .15s, color .15s;
+}
+.sched-btn-new:hover { background:#1e4080; color:#7ab8f5; }
+
+/* Feedback */
+.sched-feedback { margin:.75rem 0; padding:.55rem 1rem; border-radius:7px;
+                  font-size:.82rem; font-weight:600; }
+.fb-ok  { background:#0e2a1a; color:#4caf90; border:1px solid #1e5a38; }
+.fb-err { background:#2a0f0f; color:#e07070; border:1px solid #5a1e1e; }
+
+/* Overlay / Dialog */
+.sched-overlay {
+    position:fixed; inset:0; background:rgba(0,0,0,.65);
+    display:flex; align-items:center; justify-content:center; z-index:9999;
+}
+.sched-dialog {
+    background:#12122a; border:1px solid #2a3a6a; border-radius:12px;
+    width:520px; max-width:95vw; max-height:90vh; overflow-y:auto;
+    box-shadow:0 8px 32px rgba(0,0,0,.6);
+}
+.sched-dialog-header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:1.1rem 1.4rem .6rem; border-bottom:1px solid #1e1e38;
+}
+.sched-dialog-header h2 { margin:0; font-size:1rem; color:#c8d0e7; }
+.sched-close-btn { background:none; border:none; color:#556; font-size:1.1rem;
+                   cursor:pointer; padding:.1rem .4rem; border-radius:4px; }
+.sched-close-btn:hover { background:#1e1e38; color:#c8d0e7; }
+
+.sched-form { padding:1rem 1.4rem; display:flex; flex-direction:column; gap:.75rem; }
+.sf-row { display:flex; flex-direction:column; gap:.3rem; }
+.sf-row label { font-size:.76rem; color:#7090c0; font-weight:600; letter-spacing:.03em; }
+.sf-input {
+    background:#10101f; border:1.5px solid #2a3a5a; color:#c8d0e7;
+    border-radius:7px; padding:.4rem .75rem; font-size:.83rem;
+    outline:none; transition:border-color .15s, box-shadow .15s;
+}
+.sf-input:focus { border-color:#1B8FFF; box-shadow:0 0 0 3px rgba(27,143,255,.18); }
+.sf-time { width:120px; }
+
+.days-grid { display:flex; gap:.4rem; flex-wrap:wrap; margin-top:.2rem; }
+.day-toggle {
+    padding:.25rem .6rem; border-radius:5px; font-size:.76rem; font-weight:700;
+    cursor:pointer; background:#151528; border:1.5px solid #2a3a5a; color:#556;
+    transition:background .12s, color .12s, border-color .12s; user-select:none;
+}
+.day-toggle.day-on { background:#1b3464; color:#4a90d9; border-color:#4a90d9; }
+
+.sched-form-err { margin:.2rem 1.4rem .4rem; padding:.4rem .8rem; background:#2a0f0f;
+                  color:#e07070; border-radius:6px; font-size:.78rem; }
+.sched-dialog-footer {
+    display:flex; justify-content:flex-end; gap:.6rem;
+    padding:.8rem 1.4rem 1.1rem; border-top:1px solid #1e1e38;
+}
+.sf-btn-cancel {
+    background:none; border:1px solid #2a3a5a; color:#556;
+    border-radius:7px; padding:.38rem .9rem; font-size:.82rem; cursor:pointer;
+    transition:background .12s;
+}
+.sf-btn-cancel:hover { background:#1e1e38; color:#a0b0c8; }
+.sf-btn-save {
+    background:#1b3464; color:#4a90d9; border:1px solid #4a90d9;
+    border-radius:7px; padding:.38rem 1rem; font-size:.82rem; font-weight:700;
+    cursor:pointer; transition:background .12s;
+}
+.sf-btn-save:hover:not(:disabled) { background:#1e4080; }
+.sf-btn-save:disabled { opacity:.5; cursor:not-allowed; }
+
+/* Table */
+.sched-filter-row { margin:.5rem 0 0; }
+.logs-search {
+    background:#10101f; border:1.5px solid #2a3a5a; color:#c8d0e7;
+    border-radius:7px; padding:.42rem .85rem; font-size:.82rem;
+    width:320px; outline:none; transition:border-color .18s, box-shadow .18s;
+}
+.logs-search::placeholder { color:#445; }
+.logs-search:focus { border-color:#1B8FFF; box-shadow:0 0 0 3px rgba(27,143,255,.18); }
+
+.env-table-wrap { overflow-x:auto; border-radius:10px; border:1px solid #1e1e38; background:#10101f; }
+.env-table { width:100%; border-collapse:collapse; font-size:.82rem; }
+.env-table thead tr { background:#151528; }
+.env-table th { padding:.65rem .9rem; color:#7090c0; font-weight:600; text-align:left;
+                border-bottom:1px solid #1e1e38; white-space:nowrap; user-select:none; }
+.env-table th.sortable { cursor:pointer; }
+.env-table th.sortable:hover { color:#a0c0f0; }
+.env-table th.sort-asc::after  { content:" ▲"; font-size:.7em; }
+.env-table th.sort-desc::after { content:" ▼"; font-size:.7em; }
+.env-table td { padding:.6rem .9rem; border-bottom:1px solid #1a1a30; color:#b0bcd4; vertical-align:middle; }
+.env-table tr:last-child td { border-bottom:none; }
+.env-table tr:hover td { background:#13132a; }
+
+.sched-name { font-weight:600; color:#9ab8d8; }
+.sched-folder { display:block; font-size:.72rem; color:#445; margin-top:.1rem; font-family:monospace; }
+.sched-desc { font-size:.78rem; color:#778; max-width:200px; word-break:break-word; }
+.sched-days { font-size:.75rem; color:#7ab8e0; font-family:monospace; }
+.log-date  { white-space:nowrap; color:#778; font-family:monospace; }
+.log-badge { display:inline-block; padding:.15rem .55rem; border-radius:4px;
+             font-size:.75rem; font-weight:700; letter-spacing:.03em; }
+.badge-ok   { background:#0e3322; color:#4caf90; }
+.badge-err  { background:#3a0f0f; color:#e07070; }
+.badge-warn { background:#2a200a; color:#e0b050; }
+
+.sched-actions { white-space:nowrap; }
+.sched-act-btn {
+    background:none; border:none; padding:.22rem .3rem; border-radius:4px;
+    cursor:pointer; opacity:.5; transition:opacity .15s, background .15s;
+}
+.sched-act-btn:hover { opacity:1; background:#1e2540; }
+.sched-act-edit svg { stroke:#4a90d9; }
+.sched-act-del  svg { stroke:#e07070; }
+.sched-act-run  svg { stroke:#4caf90; }
+
+/* Footer paginazione */
+.logs-footer { padding:.6rem 1rem; border-top:1px solid #1e1e38;
+               display:flex; align-items:center; justify-content:space-between;
+               flex-wrap:wrap; gap:.5rem; }
+.logs-footer span { color:#445; font-size:.75rem; }
+.pagination { display:flex; gap:.3rem; flex-wrap:wrap; align-items:center; }
+.pg-btn { background:#151528; border:1px solid #1e1e38; color:#556;
+          border-radius:5px; padding:.22rem .6rem;
+          font-size:.75rem; cursor:pointer; transition:background .15s, color .15s; min-width:28px; }
+.pg-btn:hover:not(:disabled) { background:#1e2a44; color:#a0c0f0; }
+.pg-btn:disabled { opacity:.35; cursor:not-allowed; }
+.pg-btn.pg-active { background:#1b3464; color:#4a90d9; border-color:#4a90d9; font-weight:700; }
+</style>
+
+@code {
+    private List<TaskSchedulerJob> _all = new();
+    private bool _loading = true;
+    private string _search = string.Empty;
+    private string _sortCol = "JobName";
+    private bool _sortDesc = false;
+    private string _feedbackMsg = string.Empty;
+    private bool _feedbackOk = true;
+
+    // ── Paginazione ──────────────────────────────────
+    private const int PageSize = 20;
+    private int _page = 1;
+    private int TotalPages => Math.Max(1, (int)Math.Ceiling(Filtered().Count() / (double)PageSize));
+    private IEnumerable<TaskSchedulerJob> PagedRows() => Filtered().Skip((_page - 1) * PageSize).Take(PageSize);
+    private void GoToPage(int p) { _page = Math.Clamp(p, 1, TotalPages); }
+    private void PrevPage() => GoToPage(_page - 1);
+    private void NextPage() => GoToPage(_page + 1);
+
+    // ── Form ─────────────────────────────────────────
+    private bool _showForm = false;
+    private bool _saving = false;
+    private int? _editId = null;
+    private string _formError = string.Empty;
+    private TaskSchedulerJob _f = new();
+
+    private static readonly string[] _allDays = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" };
+    private HashSet<string> _selectedDays = new();
+
+    protected override async System.Threading.Tasks.Task OnInitializedAsync()
+    {
+        State.OnChanged += OnStateChanged;
+        await LoadAsync();
+    }
+
+    private async System.Threading.Tasks.Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            var cs = State.LastConnectionString;
+            if (string.IsNullOrWhiteSpace(cs)) { _loading = false; return; }
+
+            await using var conn = new SqlConnection(cs);
+            await conn.OpenAsync();
+            // ensure table
+            await using (var ddl = new SqlCommand(TableDdl.All["TaskSchedulerJob"], conn))
+                await ddl.ExecuteNonQueryAsync();
+
+            var list = new List<TaskSchedulerJob>();
+            await using var cmd = new SqlCommand(TableDdl.TaskSchedulerJobSelectAll, conn);
+            await using var rdr = await cmd.ExecuteReaderAsync();
+            while (await rdr.ReadAsync())
+                list.Add(new TaskSchedulerJob
+                {
+                    Id            = rdr.GetInt32(0),
+                    JobName       = rdr.IsDBNull(1)  ? "" : rdr.GetString(1),
+                    Description   = rdr.IsDBNull(2)  ? "" : rdr.GetString(2),
+                    DaysOfWeek    = rdr.IsDBNull(3)  ? "" : rdr.GetString(3),
+                    StartTime     = rdr.IsDBNull(4)  ? "" : rdr.GetString(4),
+                    Status        = rdr.IsDBNull(5)  ? "ENABLED" : rdr.GetString(5),
+                    ProgramPath   = rdr.IsDBNull(6)  ? "" : rdr.GetString(6),
+                    Arguments     = rdr.IsDBNull(7)  ? null : rdr.GetString(7),
+                    TaskFolder    = rdr.IsDBNull(8)  ? @"\DataCare\" : rdr.GetString(8),
+                    RunAsUser     = rdr.IsDBNull(9)  ? "SYSTEM" : rdr.GetString(9),
+                    CreatedAt     = rdr.IsDBNull(10) ? DateTime.MinValue : rdr.GetDateTime(10),
+                    UpdatedAt     = rdr.IsDBNull(11) ? null : rdr.GetDateTime(11),
+                    LastRunAt     = rdr.IsDBNull(12) ? null : rdr.GetDateTime(12),
+                    LastRunStatus = rdr.IsDBNull(13) ? "NEVER" : rdr.GetString(13),
+                    LastRunMessage= rdr.IsDBNull(14) ? null : rdr.GetString(14),
+                });
+            _all = list;
+        }
+        catch { }
+        finally { _loading = false; }
+    }
+
+    // ── Form helpers ─────────────────────────────────
+    private void OpenNewForm()
+    {
+        _editId = null;
+        _f = new TaskSchedulerJob { Status = "ENABLED", TaskFolder = @"\DataCare\", RunAsUser = "SYSTEM" };
+        _selectedDays = new HashSet<string>();
+        _formError = string.Empty;
+        _showForm = true;
+    }
+
+    private void OpenEditForm(TaskSchedulerJob job)
+    {
+        _editId = job.Id;
+        _f = new TaskSchedulerJob
+        {
+            JobName     = job.JobName,
+            Description = job.Description,
+            DaysOfWeek  = job.DaysOfWeek,
+            StartTime   = job.StartTime,
+            Status      = job.Status,
+            ProgramPath = job.ProgramPath,
+            Arguments   = job.Arguments,
+            TaskFolder  = job.TaskFolder,
+            RunAsUser   = job.RunAsUser,
+        };
+        _selectedDays = new HashSet<string>(job.DaysOfWeek
+            .Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(d => d.Trim()));
+        _formError = string.Empty;
+        _showForm = true;
+    }
+
+    private void CloseForm() { _showForm = false; _formError = string.Empty; }
+
+    private void ToggleDay(string day)
+    {
+        if (_selectedDays.Contains(day)) _selectedDays.Remove(day);
+        else _selectedDays.Add(day);
+    }
+
+    private async System.Threading.Tasks.Task SaveJob()
+    {
+        _formError = string.Empty;
+        if (string.IsNullOrWhiteSpace(_f.JobName)) { _formError = "Job Name è obbligatorio."; return; }
+        if (_selectedDays.Count == 0) { _formError = "Seleziona almeno un giorno."; return; }
+        if (string.IsNullOrWhiteSpace(_f.StartTime)) { _formError = "Orario obbligatorio."; return; }
+        if (string.IsNullOrWhiteSpace(_f.ProgramPath)) { _formError = "Program/Script è obbligatorio."; return; }
+
+        _f.DaysOfWeek = string.Join(",", _allDays.Where(d => _selectedDays.Contains(d)));
+        _saving = true;
+        try
+        {
+            // 1. Salva nel DB
+            var cs = State.LastConnectionString;
+            await using var conn = new SqlConnection(cs);
+            await conn.OpenAsync();
+
+            string sql = _editId.HasValue
+                ? TableDdl.TaskSchedulerJobUpdate(_editId.Value, _f.JobName, _f.Description ?? "",
+                    _f.DaysOfWeek, _f.StartTime, _f.Status, _f.ProgramPath,
+                    _f.Arguments, _f.TaskFolder, _f.RunAsUser)
+                : TableDdl.TaskSchedulerJobInsert(_f.JobName, _f.Description ?? "",
+                    _f.DaysOfWeek, _f.StartTime, _f.Status, _f.ProgramPath,
+                    _f.Arguments, _f.TaskFolder, _f.RunAsUser);
+
+            await using var cmd = new SqlCommand(sql, conn);
+            await cmd.ExecuteNonQueryAsync();
+
+            // 2. Registra / aggiorna in Windows Task Scheduler
+            await System.Threading.Tasks.Task.Run(() => RegisterTaskSchedulerJob(_f, _editId.HasValue));
+
+            _showForm = false;
+            ShowFeedback(
+                _editId.HasValue
+                    ? $"Job '{_f.JobName}' aggiornato nel DB e in Task Scheduler."
+                    : $"Job '{_f.JobName}' creato nel DB e registrato in Task Scheduler.",
+                ok: true);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _formError = $"Errore: {ex.Message}";
+        }
+        finally { _saving = false; }
+    }
+
+    private async System.Threading.Tasks.Task DeleteJob(TaskSchedulerJob job)
+    {
+        try
+        {
+            var cs = State.LastConnectionString;
+            await using var conn = new SqlConnection(cs);
+            await conn.OpenAsync();
+            await using var cmd = new SqlCommand(TableDdl.TaskSchedulerJobDelete(job.Id), conn);
+            await cmd.ExecuteNonQueryAsync();
+
+            // Rimuovi da Windows Task Scheduler
+            await System.Threading.Tasks.Task.Run(() => UnregisterTaskSchedulerJob(job.TaskFolder, job.JobName));
+
+            ShowFeedback($"Job '{job.JobName}' eliminato dal DB e da Task Scheduler.", ok: true);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            ShowFeedback($"Errore eliminazione: {ex.Message}", ok: false);
+        }
+    }
+
+    private async System.Threading.Tasks.Task RunNow(TaskSchedulerJob job)
+    {
+        try
+        {
+            await System.Threading.Tasks.Task.Run(() =>
+            {
+                using var ts = new Microsoft.Win32.TaskScheduler.TaskService();
+                string folder = NormalizeFolder(job.TaskFolder);
+                Microsoft.Win32.TaskScheduler.TaskFolder? tf;
+                try { tf = ts.GetFolder(folder); } catch { tf = null; }
+                if (tf == null) throw new InvalidOperationException($"Cartella '{folder}' non trovata in Task Scheduler.");
+                var task = tf.GetTasks().FirstOrDefault(t => t.Name == job.JobName)
+                    ?? throw new InvalidOperationException($"Task '{job.JobName}' non trovato. Aggiorna il job per registrarlo.");
+                task.Run();
+            });
+            ShowFeedback($"Job '{job.JobName}' avviato.", ok: true);
+        }
+        catch (Exception ex)
+        {
+            ShowFeedback($"Errore avvio: {ex.Message}", ok: false);
+        }
+    }
+
+    // ── Windows Task Scheduler (libreria TaskScheduler NuGet) ─────────────
+
+    /// <summary>
+    /// Normalizza il folder: deve iniziare con \ e finire con \.
+    /// Es: "DataCare" → "\DataCare\",  "\DataCare" → "\DataCare\"
+    /// </summary>
+    private static string NormalizeFolder(string folder)
+    {
+        folder = folder.Trim();
+        if (!folder.StartsWith('\\')) folder = "\\" + folder;
+        if (!folder.EndsWith('\\'))  folder += "\\";
+        return folder;
+    }
+
+    private static readonly Dictionary<string, Microsoft.Win32.TaskScheduler.DaysOfTheWeek> _dayMap = new()
+    {
+        ["Mon"] = Microsoft.Win32.TaskScheduler.DaysOfTheWeek.Monday,
+        ["Tue"] = Microsoft.Win32.TaskScheduler.DaysOfTheWeek.Tuesday,
+        ["Wed"] = Microsoft.Win32.TaskScheduler.DaysOfTheWeek.Wednesday,
+        ["Thu"] = Microsoft.Win32.TaskScheduler.DaysOfTheWeek.Thursday,
+        ["Fri"] = Microsoft.Win32.TaskScheduler.DaysOfTheWeek.Friday,
+        ["Sat"] = Microsoft.Win32.TaskScheduler.DaysOfTheWeek.Saturday,
+        ["Sun"] = Microsoft.Win32.TaskScheduler.DaysOfTheWeek.Sunday,
+    };
+
+    /// <summary>Registra o aggiorna un task in Windows Task Scheduler.</summary>
+    /// <summary>
+    /// Restituisce la TaskFolder creandola se non esiste ancora.
+    /// Gestisce correttamente il caso in cui la cartella esista già
+    /// (evita l'eccezione COM 0x800700B7 "file già esistente").
+    /// </summary>
+    private static Microsoft.Win32.TaskScheduler.TaskFolder GetOrCreateFolder(
+        Microsoft.Win32.TaskScheduler.TaskService ts, string folderPath)
+    {
+        // Prova prima a recuperarla (caso più frequente: cartella già esistente)
+        try { return ts.GetFolder(folderPath); } catch { }
+
+        // Non esiste ancora: crea i livelli uno per uno
+        var parts = folderPath.Trim('\\').Split('\\',
+            StringSplitOptions.RemoveEmptyEntries);
+
+        // Se non ci sono parti valide, restituisce la root
+        if (parts.Length == 0) return ts.RootFolder;
+
+        var current = ts.RootFolder;
+        string accumulated = "";
+        foreach (var part in parts)
+        {
+            accumulated += "\\" + part;
+
+            // 1. Prova a recuperare il livello corrente
+            Microsoft.Win32.TaskScheduler.TaskFolder? next = null;
+            try { next = ts.GetFolder(accumulated); } catch { }
+
+            // 2. Se non esiste, crealo
+            if (next == null)
+            {
+                try
+                {
+                    next = current.CreateFolder(part);
+                }
+                catch (System.Runtime.InteropServices.COMException ex)
+                    when ((uint)ex.HResult == 0x800700B7)
+                {
+                    // La cartella è stata creata tra il GetFolder e il CreateFolder:
+                    // recuperiamola senza propagare l'eccezione
+                    try { next = ts.GetFolder(accumulated); } catch { }
+                }
+                catch { /* altri errori: next rimane null, verrà rilevato sotto */ }
+            }
+
+            // Se dopo tutti i tentativi non abbiamo la cartella, errore esplicito
+            if (next == null)
+                throw new InvalidOperationException(
+                    $"Impossibile ottenere o creare la cartella Task Scheduler '{accumulated}'.");
+
+            current = next;
+        }
+        return current;
+    }
+
+    private static void RegisterTaskSchedulerJob(TaskSchedulerJob job, bool isUpdate)
+    {
+        using var ts = new Microsoft.Win32.TaskScheduler.TaskService();
+
+        string folderPath = NormalizeFolder(job.TaskFolder);
+
+        // Ottieni (o crea) la cartella in modo sicuro — non può restituire null
+        var tf = GetOrCreateFolder(ts, folderPath);
+
+        // Se update, rimuovi il task precedente prima di ricrearlo
+        if (isUpdate)
+        {
+            try { tf.DeleteTask(job.JobName, false); } catch { }
+        }
+
+        // Costruisci la definizione del task
+        var td = ts.NewTask();
+        td.RegistrationInfo.Description = job.Description ?? "";
+        td.Settings.Enabled             = job.Status == "ENABLED";
+        td.Settings.ExecutionTimeLimit  = TimeSpan.FromHours(2);
+        td.Principal.RunLevel           = Microsoft.Win32.TaskScheduler.TaskRunLevel.Highest;
+
+        // Calcola i giorni della settimana
+        var days = Microsoft.Win32.TaskScheduler.DaysOfTheWeek.Sunday ^ Microsoft.Win32.TaskScheduler.DaysOfTheWeek.Sunday; // 0
+        foreach (var d in job.DaysOfWeek.Split(','))
+        {
+            if (_dayMap.TryGetValue(d.Trim(), out var v)) days |= v;
+        }
+
+        // Trigger settimanale
+        var timeParts = job.StartTime.Split(':');
+        int hour   = int.Parse(timeParts[0]);
+        int minute = timeParts.Length > 1 ? int.Parse(timeParts[1]) : 0;
+
+        var trigger = new Microsoft.Win32.TaskScheduler.WeeklyTrigger
+        {
+            DaysOfWeek    = days,
+            StartBoundary = DateTime.Today.AddHours(hour).AddMinutes(minute),
+        };
+        td.Triggers.Add(trigger);
+
+        // Azione
+        td.Actions.Add(new Microsoft.Win32.TaskScheduler.ExecAction(
+            job.ProgramPath,
+            string.IsNullOrWhiteSpace(job.Arguments) ? null : job.Arguments,
+            null));
+
+        // Registra — usa S4U per utenti non-SYSTEM: funziona anche senza sessione interattiva
+        bool isSystem = job.RunAsUser.Equals("SYSTEM", StringComparison.OrdinalIgnoreCase);
+        tf.RegisterTaskDefinition(
+            job.JobName, td,
+            Microsoft.Win32.TaskScheduler.TaskCreation.CreateOrUpdate,
+            isSystem ? "SYSTEM" : job.RunAsUser,
+            null,
+            isSystem
+                ? Microsoft.Win32.TaskScheduler.TaskLogonType.ServiceAccount
+                : Microsoft.Win32.TaskScheduler.TaskLogonType.S4U);
+    }
+
+    /// <summary>Rimuove un task da Windows Task Scheduler (silenzioso se non esiste).</summary>
+    private static void UnregisterTaskSchedulerJob(string taskFolder, string jobName)
+    {
+        try
+        {
+            using var ts = new Microsoft.Win32.TaskScheduler.TaskService();
+            string folderPath = NormalizeFolder(taskFolder);
+            Microsoft.Win32.TaskScheduler.TaskFolder? tf;
+            try { tf = ts.GetFolder(folderPath); } catch { tf = null; }
+            tf?.DeleteTask(jobName, false);
+        }
+        catch { /* task non presente, nessun problema */ }
+    }
+
+    private void ShowFeedback(string msg, bool ok)
+    {
+        _feedbackMsg = msg;
+        _feedbackOk = ok;
+        _ = Task.Delay(4000).ContinueWith(_ =>
+        {
+            _feedbackMsg = string.Empty;
+            InvokeAsync(StateHasChanged);
+        });
+    }
+
+    private IEnumerable<TaskSchedulerJob> Filtered()
+    {
+        var q = _all.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(_search))
+        {
+            var s = _search.Trim().ToLowerInvariant();
+            q = q.Where(r => r.JobName.ToLower().Contains(s)
+                          || r.Status.ToLower().Contains(s)
+                          || (r.Description?.ToLower().Contains(s) ?? false)
+                          || r.TaskFolder.ToLower().Contains(s));
+        }
+        q = _sortCol switch
+        {
+            "DaysOfWeek" => _sortDesc ? q.OrderByDescending(r => r.DaysOfWeek) : q.OrderBy(r => r.DaysOfWeek),
+            "StartTime"  => _sortDesc ? q.OrderByDescending(r => r.StartTime)  : q.OrderBy(r => r.StartTime),
+            "Status"     => _sortDesc ? q.OrderByDescending(r => r.Status)     : q.OrderBy(r => r.Status),
+            _            => _sortDesc ? q.OrderByDescending(r => r.JobName)    : q.OrderBy(r => r.JobName),
+        };
+        return q;
+    }
+
+    private void SortBy(string col)
+    {
+        if (_sortCol == col) _sortDesc = !_sortDesc;
+        else { _sortCol = col; _sortDesc = false; }
+        _page = 1;
+    }
+
+    private string SortClass(string col) =>
+        _sortCol == col ? (_sortDesc ? "sort-desc" : "sort-asc") : "";
+
+    private static string FormatDays(string csv)
+    {
+        if (string.IsNullOrWhiteSpace(csv)) return "—";
+        var days = csv.Split(',').Select(d => d.Trim()).ToList();
+        if (days.Count == 7) return "Ogni giorno";
+        var weekdays = new[] {"Mon","Tue","Wed","Thu","Fri"};
+        if (days.Count == 5 && weekdays.All(d => days.Contains(d))) return "Lun–Ven";
+        return string.Join(" ", days);
+    }
+
+    private void OnStateChanged() => _ = InvokeAsync(async () =>
+    {
+        await LoadAsync();
+        StateHasChanged();
+    });
+
+    public void Dispose() => State.OnChanged -= OnStateChanged;
+}

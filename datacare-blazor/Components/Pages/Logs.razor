@@ -41,8 +41,8 @@ else
     <div class="logs-page">
         <div class="dash-header">
             <div>
-                <h1 class="dash-title">Execution Tasks</h1>
-                <span class="dash-sub">dbo.ExecutionLog — all executions</span>
+                <h1 class="dash-title">DataCare Logs</h1>
+                <span class="dash-sub">Monitor all executions</span>
             </div>
             <div class="logs-filter-row">
                 <input class="logs-search"
@@ -61,11 +61,11 @@ else
                         <th @onclick="@(() => SortBy("ExecutionId"))" class="sortable @(SortClass("ExecutionId"))">Execution ID</th>
                         <th @onclick="@(() => SortBy("ExecutionDate"))" class="sortable @(SortClass("ExecutionDate"))">Date</th>
                         <th @onclick="@(() => SortBy("ReportName"))" class="sortable @(SortClass("ReportName"))">Report</th>
-                        <th @onclick="@(() => SortBy("Status"))" class="sortable @(SortClass("Status"))">Status</th>
                         <th @onclick="@(() => SortBy("RowsRetrieved"))" class="sortable @(SortClass("RowsRetrieved"))">Retrieved</th>
                         <th @onclick="@(() => SortBy("RowsInserted"))" class="sortable @(SortClass("RowsInserted"))">Inserted</th>
                         <th @onclick="@(() => SortBy("DurationTimeJob"))" class="sortable @(SortClass("DurationTimeJob"))">Duration</th>
-                        <th @onclick="@(() => SortBy("TableSizeMB"))" class="sortable @(SortClass("TableSizeMB"))">Size (MB)</th>
+                        <th @onclick="@(() => SortBy("TableSizeMB"))" class="sortable @(SortClass("TableSizeMB"))">Table Size (MB)</th>
+                        <th @onclick="@(() => SortBy("Status"))" class="sortable @(SortClass("Status"))">Status</th>
                         <th>Error</th>
                     </tr>
                 </thead>
@@ -93,15 +93,15 @@ else
                             </td>
                             <td class="log-date">@r.ExecutionDate.ToString("yyyy-MM-dd HH:mm:ss")</td>
                             <td>@r.ReportName</td>
+                            <td class="log-num">@r.RowsRetrieved.ToString("N0")</td>
+                            <td class="log-num">@r.RowsInserted.ToString("N0")</td>
+                            <td class="log-duration">@(string.IsNullOrWhiteSpace(r.DurationTimeJob) ? "—" : r.DurationTimeJob)</td>
+                            <td class="log-num log-size">@(r.TableSizeMB.HasValue ? r.TableSizeMB.Value.ToString("F2") : "—")</td>
                             <td>
                                 <span class="log-badge @(r.IsSuccess ? "badge-ok" : r.Status == "CANCELLED" ? "badge-warn" : "badge-err")">
                                     @r.Status
                                 </span>
                             </td>
-                            <td class="log-num">@r.RowsRetrieved.ToString("N0")</td>
-                            <td class="log-num">@r.RowsInserted.ToString("N0")</td>
-                            <td class="log-duration">@(string.IsNullOrWhiteSpace(r.DurationTimeJob) ? "—" : r.DurationTimeJob)</td>
-                            <td class="log-num log-size">@(r.TableSizeMB.HasValue ? r.TableSizeMB.Value.ToString("F2") : "—")</td>
                             <td class="log-err">@(r.ErrorMessage ?? "—")</td>
                         </tr>
                     }

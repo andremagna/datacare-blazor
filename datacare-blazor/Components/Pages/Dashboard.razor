@@ -39,33 +39,38 @@ else
         <div class="dash-header">
             <div>
                 <h1 class="dash-title">DataCare Dashboard</h1>
-                <span class="dash-sub">Microsoft 365 Usage Custom Report</span>
+                <span class="dash-sub">Monitor and analyze your data</span>
             </div>
 
+            @if (!string.IsNullOrEmpty(_downloadError))
+            {
+                <div class="sched-feedback fb-err" style="width:100%;margin-bottom:.5rem;">@_downloadError</div>
+            }
+
             <!-- FIX 3: filters below download buttons -->
-                <div class="filters-row">
-                    <div class="filter-item">
-                        <label class="filter-label">Department</label>
-                        <select class="filter-select" @bind="_selectedDept" @bind:after="OnFiltersChanged">
-                            <option value="">All departments</option>
-                            @foreach (var d in _departments)
-                            {
-                                <option value="@d">@d</option>
-                            }
-                        </select>
-                    </div>
-                    <!-- FIX 5: Month filter -->
-                    <div class="filter-item">
-                        <label class="filter-label">Month</label>
-                        <select class="filter-select" @bind="_selectedYearMonth" @bind:after="OnFiltersChanged">
-                            <option value="0">All months</option>
-                            @foreach (var m in _months)
-                            {
-                                <option value="@m.YearMonth">@m.Label</option>
-                            }
-                        </select>
-                    </div>
+            <div class="filters-row">
+                <div class="filter-item">
+                    <label class="filter-label">Department</label>
+                    <select class="filter-select" @bind="_selectedDept" @bind:after="OnFiltersChanged">
+                        <option value="">All departments</option>
+                        @foreach (var d in _departments)
+                        {
+                            <option value="@d">@d</option>
+                        }
+                    </select>
                 </div>
+                <!-- FIX 5: Month filter -->
+                <div class="filter-item">
+                    <label class="filter-label">Month</label>
+                    <select class="filter-select" @bind="_selectedYearMonth" @bind:after="OnFiltersChanged">
+                        <option value="0">All months</option>
+                        @foreach (var m in _months)
+                        {
+                            <option value="@m.YearMonth">@m.Label</option>
+                        }
+                    </select>
+                </div>
+            </div>
 
             <!-- FIX 3+4: Download buttons top-right, filters below them -->
             <div class="dash-controls">
@@ -198,6 +203,7 @@ else
     private int _selectedYearMonth = 0;
     private bool _mapRendered = false;
     private string? _cs;
+    private string _downloadError = string.Empty;
 
     protected override async Task OnInitializedAsync()
     {
@@ -337,38 +343,83 @@ else
     // ── FIX 4: Download ───────────────────────────────────────────────────
     private async Task DownloadJson()
     {
-        var dept = string.IsNullOrWhiteSpace(_selectedDept) ? "all" : _selectedDept;
-        var obj = new { department = dept, generatedAt = DateTime.UtcNow, metrics = _data, countries = _countries };
-        var json = System.Text.Json.JsonSerializer.Serialize(obj,
-            new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-        await JS.InvokeVoidAsync("datacareExport.downloadBase64",
-            $"datacare_{dept}_{DateTime.Now:yyyyMMdd}.json",
-            "application/json",
-            Convert.ToBase64String(Encoding.UTF8.GetBytes(json)));
+        _downloadError = string.Empty;
+        try
+        {
+            var dept = string.IsNullOrWhiteSpace(_selectedDept) ? "all" : _selectedDept;
+            var obj = new { department = dept, generatedAt = DateTime.UtcNow, metrics = _data, countries = _countries };
+            var json = System.Text.Json.JsonSerializer.Serialize(obj,
+                new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+            var bytes = Encoding.UTF8.GetBytes(json);
+            var fileName = $"datacare_{dept}_{DateTime.Now:yyyyMMdd}.json";
+            await JS.InvokeVoidAsync("datacareExport.downloadBase64", fileName, "application/json",
+                Convert.ToBase64String(bytes));
+            await SaveDownloadRecordAsync(bytes, "application/json", fileName);
+        }
+        catch (Exception ex) { _downloadError = $"Errore salvataggio download: {ex.Message}"; }
     }
 
     private async Task DownloadCsv()
     {
-        var dept = string.IsNullOrWhiteSpace(_selectedDept) ? "all" : _selectedDept;
-        var sb = new StringBuilder();
-        sb.AppendLine("MonthLabel,Year,Month,Exchange_Item_Count,Exchange_Deleted_Item_Count," +
-                      "Exchange_StorageUsedGB,Exchange_DeletedItemSizeGB," +
-                      "OneDrive_File_Count,OneDrive_StorageUsedGB," +
-                      "SharePoint_File_Count,SharePoint_StorageUsedGB,Users_Total");
-        foreach (var r in _data)
-            sb.AppendLine($"\"{r.MonthLabel}\",{r.YearNum},{r.MonthNum}," +
-                          $"{r.Exchange_Item_Count},{r.Exchange_Deleted_Item_Count}," +
-                          $"{r.Exchange_StorageUsedGB:F2},{r.Exchange_DeletedItemSizeGB:F2}," +
-                          $"{r.OneDrive_Total_File_Count},{r.OneDrive_Total_StorageUsedGB:F2}," +
-                          $"{r.SharePoint_Total_File_Count},{r.SharePoint_Total_StorageUsedGB:F2},{r.Users_Total}");
-        await JS.InvokeVoidAsync("datacareExport.downloadBase64",
-            $"datacare_{dept}_{DateTime.Now:yyyyMMdd}.csv",
-            "text/csv",
-            Convert.ToBase64String(Encoding.UTF8.GetBytes(sb.ToString())));
+        _downloadError = string.Empty;
+        try
+        {
+            var dept = string.IsNullOrWhiteSpace(_selectedDept) ? "all" : _selectedDept;
+            var sb = new StringBuilder();
+            sb.AppendLine("MonthLabel,Year,Month,Exchange_Item_Count,Exchange_Deleted_Item_Count," +
+                          "Exchange_StorageUsedGB,Exchange_DeletedItemSizeGB," +
+                          "OneDrive_File_Count,OneDrive_StorageUsedGB," +
+                          "SharePoint_File_Count,SharePoint_StorageUsedGB,Users_Total");
+            foreach (var r in _data)
+                sb.AppendLine($"\"{r.MonthLabel}\",{r.YearNum},{r.MonthNum}," +
+                              $"{r.Exchange_Item_Count},{r.Exchange_Deleted_Item_Count}," +
+                              $"{r.Exchange_StorageUsedGB:F2},{r.Exchange_DeletedItemSizeGB:F2}," +
+                              $"{r.OneDrive_Total_File_Count},{r.OneDrive_Total_StorageUsedGB:F2}," +
+                              $"{r.SharePoint_Total_File_Count},{r.SharePoint_Total_StorageUsedGB:F2},{r.Users_Total}");
+            var bytes = Encoding.UTF8.GetBytes(sb.ToString());
+            var fileName = $"datacare_{dept}_{DateTime.Now:yyyyMMdd}.csv";
+            await JS.InvokeVoidAsync("datacareExport.downloadBase64", fileName, "text/csv",
+                Convert.ToBase64String(bytes));
+            await SaveDownloadRecordAsync(bytes, "text/csv", fileName);
+        }
+        catch (Exception ex) { _downloadError = $"Errore salvataggio download: {ex.Message}"; }
     }
 
-    private async Task DownloadPdf() =>
-        await JS.InvokeVoidAsync("datacareExport.downloadPdf");
+    private async Task DownloadPdf()
+    {
+        _downloadError = string.Empty;
+        try
+        {
+            await JS.InvokeVoidAsync("datacareExport.downloadPdf");
+            var dept = string.IsNullOrWhiteSpace(_selectedDept) ? "all" : _selectedDept;
+            var fileName = $"datacare_{dept}_{DateTime.Now:yyyyMMdd}.pdf";
+            // PDF bytes not available client-side from jsPDF; store a placeholder record without binary
+            await SaveDownloadRecordAsync(null, "application/pdf", fileName);
+        }
+        catch (Exception ex) { _downloadError = $"Errore salvataggio download: {ex.Message}"; }
+    }
+
+    /// <summary>Persists a download event in dbo.DownloadFile.</summary>
+    private async Task SaveDownloadRecordAsync(byte[]? fileBytes, string mimeType, string fileName)
+    {
+        // Usa sia State.LastConnectionString che il campo locale _cs per massima robustezza
+        var cs = State.LastConnectionString;
+        if (string.IsNullOrWhiteSpace(cs)) cs = _cs;
+        if (string.IsNullOrWhiteSpace(cs)) return;
+
+        await using var conn = new SqlConnection(cs);
+        await conn.OpenAsync();
+        // Crea la tabella se non esiste ancora
+        await using (var ddl = new SqlCommand(TableDdl.All["DownloadFile"], conn))
+            await ddl.ExecuteNonQueryAsync();
+        await using var cmd = new SqlCommand(TableDdl.DownloadFileInsert, conn);
+        cmd.Parameters.Add("@File", System.Data.SqlDbType.VarBinary).Value =
+            fileBytes != null ? (object)fileBytes : DBNull.Value;
+        cmd.Parameters.AddWithValue("@FileType", mimeType);
+        cmd.Parameters.AddWithValue("@FileName", fileName);
+        cmd.Parameters.AddWithValue("@FileStorage", "dbo.DownloadFile / File (VARBINARY)");
+        await cmd.ExecuteNonQueryAsync();
+    }
 
     // ═══════════════════════════════════════════════════════════════════════
     //  CHART RENDERERS
@@ -777,4 +828,8 @@ else
     .dash-empty-title { font-size:1.1rem;font-weight:600;color:#3a5070;margin:0; }
     .dash-empty-msg   { color:#3a5070;font-size:.88rem; }
     .dash-empty-msg a { color:#1B8FFF; }
+    /* feedback download */
+    .sched-feedback { margin:.75rem 0; padding:.55rem 1rem; border-radius:7px;
+                      font-size:.82rem; font-weight:600; }
+    .fb-err { background:#2a0f0f; color:#e07070; border:1px solid #5a1e1e; }
 </style>

@@ -69,8 +69,8 @@
 <div class="env-page">
     <div class="env-header">
         <div>
-            <h1 class="env-title">Environment Configuration</h1>
-            <span class="env-sub">Manage Azure AD credentials for ETL runs</span>
+            <h1 class="env-title">DataCare ETL Environment Configuration</h1>
+            <span class="env-sub">Manage Azure AD credentials for a data extraction</span>
         </div>
         <button class="btn-add" @onclick="OpenAddModal" title="Add new environment"
                 disabled="@string.IsNullOrWhiteSpace(ActiveCs)">
@@ -139,39 +139,64 @@
     }
     else
     {
-        <div class="env-table-wrap">
-            <table class="env-table">
-                <thead>
-                    <tr>
-                        <th>Environment Key</th>
-                        <th>Tenant ID</th>
-                        <th>Client ID</th>
-                        <th>Certificate Thumbprint</th>
-                        <th>Created</th>
-                        <th>Updated</th>
-                        <th></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var cfg in _configs)
-                    {
+        <div class="env-table-wrap-outer">
+            <div class="dash-header" style="margin-bottom:1rem;">
+                <div class="logs-filter-row">
+                    <input class="logs-search"
+                           type="text"
+                           placeholder="Search by key, tenant, client…"
+                           @bind="_search"
+                           @bind:event="oninput"
+                           @bind:after="() => _page = 1" />
+                </div>
+            </div>
+            <div class="env-table-wrap">
+                <table class="env-table">
+                    <thead>
                         <tr>
-                            <td class="env-key">@cfg.EnvironmentKey</td>
-                            <td class="env-mono">@Mask(cfg.TenantId)</td>
-                            <td class="env-mono">@Mask(cfg.ClientId)</td>
-                            <td class="env-mono">@MaskThumb(cfg.CertificateThumbprint)</td>
-                            <td class="env-date">@cfg.CreatedAt.ToString("dd MMM yyyy HH:mm")</td>
-                            <td class="env-date">@(cfg.UpdatedAt.HasValue ? cfg.UpdatedAt.Value.ToString("dd MMM yyyy HH:mm") : "—")</td>
-                            <td class="env-actions">
-                                <button class="btn-edit" @onclick="@(() => OpenEditModal(cfg))" title="Edit">
-                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                                    Edit
-                                </button>
-                            </td>
+                            <th @onclick="@(() => SortBy("EnvironmentKey"))"  class="sortable @(SortClass("EnvironmentKey"))">Environment Key</th>
+                            <th @onclick="@(() => SortBy("TenantId"))"        class="sortable @(SortClass("TenantId"))">Tenant ID</th>
+                            <th @onclick="@(() => SortBy("ClientId"))"        class="sortable @(SortClass("ClientId"))">Client ID</th>
+                            <th @onclick="@(() => SortBy("CertificateThumbprint"))" class="sortable @(SortClass("CertificateThumbprint"))">Certificate Thumbprint</th>
+                            <th @onclick="@(() => SortBy("CreatedAt"))"       class="sortable @(SortClass("CreatedAt"))">Created</th>
+                            <th @onclick="@(() => SortBy("UpdatedAt"))"       class="sortable @(SortClass("UpdatedAt"))">Updated</th>
+                            <th></th>
                         </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var cfg in PagedRows())
+                        {
+                            <tr>
+                                <td class="env-key">@cfg.EnvironmentKey</td>
+                                <td class="env-mono">@Mask(cfg.TenantId)</td>
+                                <td class="env-mono">@Mask(cfg.ClientId)</td>
+                                <td class="env-mono">@MaskThumb(cfg.CertificateThumbprint)</td>
+                                <td class="env-date">@cfg.CreatedAt.ToString("dd MMM yyyy HH:mm")</td>
+                                <td class="env-date">@(cfg.UpdatedAt.HasValue ? cfg.UpdatedAt.Value.ToString("dd MMM yyyy HH:mm") : "—")</td>
+                                <td class="env-actions">
+                                    <button class="btn-edit" @onclick="@(() => OpenEditModal(cfg))" title="Edit">
+                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                        Edit
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="logs-footer">
+                <span>@_configs.Count totali &nbsp;·&nbsp; @Filtered().Count() filtrati &nbsp;·&nbsp; Pagina @_page di @TotalPages</span>
+                <div class="pagination">
+                    <button class="pg-btn" @onclick="PrevPage" disabled="@(_page <= 1)">‹ Prec</button>
+                    @for (int p = 1; p <= TotalPages; p++)
+                    {
+                        var pCopy = p;
+                        <button class="pg-btn @(pCopy == _page ? "pg-active" : "")" @onclick="@(() => GoToPage(pCopy))">@pCopy</button>
                     }
-                </tbody>
-            </table>
+                    <button class="pg-btn" @onclick="NextPage" disabled="@(_page >= TotalPages)">Succ ›</button>
+                </div>
+            </div>
         </div>
     }
 </div>
@@ -294,8 +319,34 @@
 }
 .btn-save:hover:not(:disabled) { background:#1a3060; color:#90d0ff; }
 .btn-save:disabled { opacity:.5; cursor:not-allowed; }
-.spin { display:inline-block; animation: spin .7s linear infinite; }
-@@keyframes spin { to { transform: rotate(360deg); } }
+.env-table th.sortable { cursor:pointer; user-select:none; }
+.env-table th.sortable:hover { color:#a0c0f0; }
+.env-table th.sort-asc::after  { content:" ▲"; font-size:.7em; }
+.env-table th.sort-desc::after { content:" ▼"; font-size:.7em; }
+
+.logs-filter-row { display:flex; gap:.75rem; align-items:center; }
+.logs-search {
+    background:#10101f; border:1.5px solid #2a3a5a; color:#c8d0e7;
+    border-radius:7px; padding:.42rem .85rem; font-size:.82rem;
+    width:300px; outline:none; transition:border-color .18s, box-shadow .18s;
+}
+.logs-search::placeholder { color:#445; }
+.logs-search:focus { border-color:#1B8FFF; box-shadow:0 0 0 3px rgba(27,143,255,.18); }
+
+.logs-footer {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:.75rem 1rem; font-size:.78rem; color:#4a6a88; border-top:1px solid #1a1a30;
+}
+.pagination { display:flex; gap:.3rem; }
+.pg-btn {
+    background:#10101f; border:1px solid #1e2a44; color:#5a7a9a;
+    border-radius:5px; padding:.28rem .65rem; font-size:.78rem; cursor:pointer;
+    transition:border-color .15s, color .15s;
+}
+.pg-btn:hover:not(:disabled) { border-color:#1B8FFF; color:#90d0ff; }
+.pg-btn:disabled { opacity:.35; cursor:not-allowed; }
+.pg-btn.pg-active { background:#112040; border-color:#1B8FFF; color:#5ab5ff; font-weight:700; }
+
 </style>
 
 @code {
@@ -493,6 +544,56 @@
 
     private static string Mask(string s) => s.Length > 8 ? s[..8] + "…" : s;
     private static string MaskThumb(string s) => s.Length > 10 ? s[..6] + "…" + s[^4..] : s;
+
+    // ── Search / Sort / Pagination ────────────────────────────────────────
+    private string _search   = string.Empty;
+    private string _sortCol  = "CreatedAt";
+    private bool   _sortAsc  = false;
+    private int    _page     = 1;
+    private const int PageSize = 20;
+
+    private int TotalPages => Math.Max(1, (int)Math.Ceiling(Filtered().Count() / (double)PageSize));
+
+    private IEnumerable<EnvironmentConfig> Filtered()
+    {
+        var q = _configs.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(_search))
+        {
+            var s = _search.Trim().ToLowerInvariant();
+            q = q.Where(c =>
+                c.EnvironmentKey.ToLowerInvariant().Contains(s) ||
+                c.TenantId.ToLowerInvariant().Contains(s) ||
+                c.ClientId.ToLowerInvariant().Contains(s) ||
+                c.CertificateThumbprint.ToLowerInvariant().Contains(s));
+        }
+        q = _sortCol switch
+        {
+            "EnvironmentKey"        => _sortAsc ? q.OrderBy(c => c.EnvironmentKey)        : q.OrderByDescending(c => c.EnvironmentKey),
+            "TenantId"              => _sortAsc ? q.OrderBy(c => c.TenantId)              : q.OrderByDescending(c => c.TenantId),
+            "ClientId"              => _sortAsc ? q.OrderBy(c => c.ClientId)              : q.OrderByDescending(c => c.ClientId),
+            "CertificateThumbprint" => _sortAsc ? q.OrderBy(c => c.CertificateThumbprint) : q.OrderByDescending(c => c.CertificateThumbprint),
+            "UpdatedAt"             => _sortAsc ? q.OrderBy(c => c.UpdatedAt)             : q.OrderByDescending(c => c.UpdatedAt),
+            _                       => _sortAsc ? q.OrderBy(c => c.CreatedAt)             : q.OrderByDescending(c => c.CreatedAt),
+        };
+        return q;
+    }
+
+    private IEnumerable<EnvironmentConfig> PagedRows() =>
+        Filtered().Skip((_page - 1) * PageSize).Take(PageSize);
+
+    private void SortBy(string col)
+    {
+        if (_sortCol == col) _sortAsc = !_sortAsc;
+        else { _sortCol = col; _sortAsc = true; }
+        _page = 1;
+    }
+
+    private string SortClass(string col) =>
+        _sortCol == col ? (_sortAsc ? "sort-asc" : "sort-desc") : "";
+
+    private void PrevPage() { if (_page > 1) _page--; }
+    private void NextPage() { if (_page < TotalPages) _page++; }
+    private void GoToPage(int p) => _page = p;
 
     private void OnStateChanged() => _ = InvokeAsync(async () =>
     {

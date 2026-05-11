@@ -475,7 +475,7 @@ html, body {
 }
 
 .dash-title {
-    font-size: 18px;
+    font-size: 1.45rem;
     font-weight: 700;
     color: #dde;
     outline: none;
@@ -487,8 +487,8 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .dash-sub {
-    font-size: 11.5px;
-    color: #446;
+    font-size: .78rem;
+    color: #4a6a88;
 }
 /* section labels */
 .section-label {
