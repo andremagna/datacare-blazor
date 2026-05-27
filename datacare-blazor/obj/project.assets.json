@@ -2945,11 +2945,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Tools\\Workspace\\Auth\\DataCare\\DataCare.csproj",
+      "projectUniqueName": "C:\\Tools\\Workspace\\Auth\\DataCareBlazor\\DataCare.csproj",
       "projectName": "DataCare",
-      "projectPath": "C:\\Tools\\Workspace\\Auth\\DataCare\\DataCare.csproj",
+      "projectPath": "C:\\Tools\\Workspace\\Auth\\DataCareBlazor\\DataCare.csproj",
       "packagesPath": "C:\\Users\\amagnaghi\\.nuget\\packages\\",
-      "outputPath": "C:\\Tools\\Workspace\\Auth\\DataCare\\obj\\",
+      "outputPath": "C:\\Tools\\Workspace\\Auth\\DataCareBlazor\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
